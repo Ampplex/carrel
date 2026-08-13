@@ -1,0 +1,33 @@
+[project]
+name = "carrel-backend"
+version = "0.1.0"
+description = "Coursework memory built on the Reeve SDK"
+requires-python = ">=3.10"
+dependencies = [
+    # Lower bound is load-bearing: 0.1.40 added reconnection when an idle SSE
+    # session expires (a long-lived web backend is exactly the case that broke),
+    # and 0.1.41 added the attached-photo query arguments that photo
+    # re-interrogation depends on.
+    #
+    # Upper bound is load-bearing too: reeve_gateway.py reaches past the
+    # published SDK surface in two places, because query-side calls accept
+    # image_path/image_url but not image_base64 while the tool underneath does.
+    "reeve>=0.1.41,<0.2",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.7",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
