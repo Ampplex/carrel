@@ -19,6 +19,11 @@ BACKEND = Path(__file__).resolve().parent.parent
 REPO = BACKEND.parent
 EXPERIMENTS = REPO / "docs" / "experiments"
 
+# Scripts run from scripts/, so the backend package root has to be importable
+# before they can share the app's error classification.
+if str(BACKEND) not in sys.path:
+    sys.path.insert(0, str(BACKEND))
+
 
 def load_env() -> None:
     """Load backend/.env without a dependency, and fail loudly if the key is absent.
@@ -76,3 +81,31 @@ class Recorder:
 def token() -> str:
     """A token unlikely to collide with anything already in the namespace."""
     return f"CARREL{int(time.time())}"
+
+
+def run(main) -> int:
+    """Run a probe's main(), turning SDK failures into an actionable message.
+
+    `make check` is usually the first thing anyone runs on a fresh clone, and a
+    stack trace is a poor answer when the real problem is an unset key or an
+    exhausted quota. This reuses the application's own error table so the CLI
+    and the web UI never disagree about what went wrong.
+    """
+    from app.errors import classify  # imported late: needs .env loaded first
+
+    try:
+        return main()
+    except KeyboardInterrupt:
+        print("\nInterrupted.")
+        return 130
+    except Exception as exc:  # noqa: BLE001 - the whole point is to classify it
+        error = classify(exc)
+        print(f"\n{error.user_message}", file=sys.stderr)
+        if error.code == "reeve_auth":
+            print(
+                f"  Set a working key in {BACKEND / '.env'} and try again.",
+                file=sys.stderr,
+            )
+        if error.detail:
+            print(f"  ({error.detail})", file=sys.stderr)
+        return 1

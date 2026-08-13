@@ -20,7 +20,7 @@ from __future__ import annotations
 import sys
 import time
 
-from _probe_common import Recorder, load_env, namespace, token
+from _probe_common import Recorder, load_env, namespace, run, token
 
 load_env()
 
@@ -109,4 +109,4 @@ def _tick(value: bool) -> str:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run(main))
