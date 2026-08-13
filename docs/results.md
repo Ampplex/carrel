@@ -1,25 +1,29 @@
 # Results
 
-> **Status: not yet measured.** Every table below is a placeholder waiting on a
-> working API key. Nothing here should be written by hand — the whole point is
-> that the numbers come from real runs of the deployed service, captured into
-> `docs/experiments/` and quoted verbatim.
+Measured against the live hosted service. Raw transcripts are in
+`docs/experiments/`; nothing in this file is written by hand except the
+interpretation.
 
-Record with every table: the date of the run and the `memory_config()` output
-captured at that moment. The hosted service is operator-controlled and can change
-underneath a result, which would otherwise make an old number quietly wrong.
+Every table records the date of its run and the capability state at that moment.
+The service is operator-controlled and can change underneath a result, which
+would otherwise leave an old number quietly wrong.
 
 ## Environment at time of measurement
 
-Capture from `GET /api/config`:
+Run 2026-08-13. From `probe_config.py` (`docs/experiments/probe-config.md`):
 
 | Field | Value |
 |---|---|
-| chat model | _pending_ |
-| vision enabled | _pending_ |
-| image retention | _pending_ |
-| multimodal image search | _pending_ |
-| async writes | _pending_ |
+| SDK | reeve 0.1.41 |
+| provider / chat model | bedrock / `mistral.mistral-large-2407-v1:0` |
+| embedding dimension | 1024 |
+| vision enabled | yes |
+| image retention | yes, indefinite |
+| multimodal image search | yes |
+| async writes | yes, worker running |
+| geo enrichment | yes (unused by this project) |
+
+Every capability this project depends on was live for all measurements below.
 
 ## 1. Read-after-write latency
 
@@ -34,12 +38,39 @@ hosted service runs multiple workers, visibility may vary between calls. A
 non-deterministic result is itself a finding worth reporting.
 
 Script: `backend/scripts/probe_readafterwrite.py`
+Raw: `docs/experiments/probe-readafterwrite.md`
+
+Run 2026-08-13, namespace `carrel-probe`. `store_memory` returned
+`{'pending_id': 'tmp_a9075e8e65', 'stored': False, 'persisting': True}`.
 
 | t (s) | token in context | under PENDING | indexed episode | narrated answer |
 |---|---|---|---|---|
-| _pending_ | | | | |
+| 8 | yes | yes | no | correct — "48 kilohertz" |
+| 15 | yes | yes | yes | — |
+| 22 | yes | no | yes | — |
 
-Median time to indexed: _pending_ (n = _pending_)
+**Finding: a write is answerable immediately, and fully indexed in about 20
+seconds.** At t=8s the fact was not yet an indexed episode, but the narrated
+answer was already correct — the server merges its short-term buffer of accepted
+writes into the retrieval context, under a header instructing the model to prefer
+it on conflict. By t=15s the memory existed in both places at once, and by t=22s
+it had left the buffer entirely and lived in the graph.
+
+Two things follow for the interface:
+
+1. The pessimistic reading — "your write may not be findable yet" — is wrong for
+   the first few seconds. It is findable; it is merely not yet *indexed*. The
+   settling tray can honestly say a write is already answerable.
+2. Indexing completed in roughly 20 seconds, against a documented window of 10 to
+   60. Times were measured on an otherwise idle namespace; a busier account, or a
+   burst of writes, should be expected to sit at the slower end.
+
+**Caveat, and it matters: n = 1.** The server's write buffer is per-process, so
+if the hosted service runs more than one worker, whether a caller sees their own
+pending write may depend on which worker served the request. A single run cannot
+distinguish "always visible" from "visible this time". This needs repeating
+across several runs and times of day before the UI is redesigned around it — and
+a non-deterministic result would itself be the finding.
 
 ## 2. Supersession
 
