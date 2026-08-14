@@ -34,6 +34,17 @@ Status = Literal["indexing", "likely_indexed", "indexed", "failed"]
 # we still refuse to claim it is indexed without evidence.
 SETTLE_SECONDS = 60
 
+# After this, an unverified write leaves the tray entirely.
+#
+# It matches the server's own short-term buffer lifetime: past that point the
+# write has left the buffer and is either in the graph or failed, so "still
+# settling" has stopped being true. Keeping the pill was actively harmful —
+# every answer inherited a caveat reading "1 memory is still settling" from a
+# write that was nine minutes old and long since indexed. A warning that is
+# always on teaches people to ignore warnings, which costs more than the rare
+# case where a write really did fail silently.
+FORGET_UNVERIFIED_SECONDS = 300
+
 
 class PendingWrite(BaseModel):
     id: str
@@ -48,6 +59,19 @@ class PendingWrite(BaseModel):
     @property
     def elapsed_s(self) -> float:
         return time.time() - self.created_at
+
+
+def _keep(item: "PendingWrite", now: float) -> bool:
+    """Should this write still occupy the tray?
+
+    Two ways out: confirmed and briefly celebrated, or old enough that "still
+    settling" is no longer a claim we can honestly make.
+    """
+    if item.status == "indexed" and item.verified_at and now - item.verified_at > 30:
+        return False
+    if item.status != "indexed" and now - item.created_at > FORGET_UNVERIFIED_SECONDS:
+        return False
+    return True
 
 
 class PendingRegistry:
@@ -106,13 +130,10 @@ class PendingRegistry:
             for item in items:
                 if item.status == "indexing" and now - item.created_at > SETTLE_SECONDS:
                     item.status = "likely_indexed"
-            # Drop confirmed writes shortly after they go green so the tray does
-            # not grow without bound during a long session.
             self._items = {
-                key: value
-                for key, value in self._items.items()
-                if not (value.status == "indexed" and value.verified_at and now - value.verified_at > 30)
+                key: value for key, value in self._items.items() if _keep(value, now)
             }
+            items = [item for item in items if _keep(item, now)]
         return sorted(items, key=lambda i: i.created_at, reverse=True)
 
     def unsettled_count(self) -> int:

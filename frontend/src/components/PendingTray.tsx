@@ -53,7 +53,8 @@ export function PendingTray({
 
   return (
     <div className="tray">
-      <strong style={{ fontSize: "0.8rem" }}>Settling</strong>
+      <div className="tray-inner">
+      <span className="tray-label">Settling</span>
       {items.map((item) => {
         const elapsed = Math.max(0, Math.round(now / 1000 - item.created_at));
         return (
@@ -62,7 +63,8 @@ export function PendingTray({
             {item.kind === "photo" ? "photo" : "note"} · {LABEL[item.status]} · {elapsed}s
             {item.status !== "indexed" && (
               <button
-                style={{ padding: "0 0.3rem", fontSize: "0.68rem", border: "none", background: "none", textDecoration: "underline" }}
+                className="ghost"
+                style={{ padding: "0 4px", fontSize: "11px" }}
                 disabled={checking === item.id}
                 onClick={() => verify(item.id)}
                 title="Runs a real retrieval to see whether this memory is searchable yet. Costs one query."
@@ -73,9 +75,10 @@ export function PendingTray({
           </span>
         );
       })}
-      <span style={{ marginLeft: "auto", color: "var(--muted)", fontSize: "0.74rem" }}>
-        Reeve accepted these instantly and is still building the graph.
+      <span className="spacer" style={{ color: "var(--ink-tertiary)", fontSize: "12px" }}>
+        Accepted instantly — the graph is still being built.
       </span>
+      </div>
     </div>
   );
 }

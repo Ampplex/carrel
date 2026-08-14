@@ -118,7 +118,7 @@ export function Photos({ onWrite }: { onWrite: (pending: PendingWrite[]) => void
       <section className="card">
         <h2>Photo wall</h2>
         {photos.length === 0 ? (
-          <p className="hint">No photos yet.</p>
+          <p className="empty">No photos yet — add a whiteboard or a slide above.</p>
         ) : (
           <>
             <p className="hint">
@@ -162,13 +162,13 @@ export function Photos({ onWrite }: { onWrite: (pending: PendingWrite[]) => void
           {(attached || lane) && (
             <div className="compare" style={{ marginTop: "1rem" }}>
               <div>
-                <strong style={{ fontSize: "0.85rem" }}>With the photo attached</strong>
-                <p className="answer" style={{ fontSize: "0.95rem" }}>{attached?.answer}</p>
+                <h4>With the photo attached</h4>
+                <p className="answer" style={{ fontSize: "16px" }}>{attached?.answer}</p>
                 <p className="hint">{attached?.note}</p>
               </div>
               <div>
-                <strong style={{ fontSize: "0.85rem" }}>Without attaching it</strong>
-                <p className="answer" style={{ fontSize: "0.95rem" }}>{lane?.answer}</p>
+                <h4>Without attaching it</h4>
+                <p className="answer" style={{ fontSize: "16px" }}>{lane?.answer}</p>
                 <p className="hint">{lane?.note}</p>
               </div>
             </div>

@@ -150,6 +150,11 @@ export const api = {
   ask: (question: string, withEvidence: boolean) =>
     request<Answer>("/api/ask", json({ question, with_evidence: withEvidence })),
 
+  /** The raw ranked context behind an answer. Fetched only when the reader asks
+   *  to see it, so the second query is spent only when it will be looked at. */
+  context: (question: string) =>
+    request<{ raw: string; parsed: ParsedContext }>("/api/context", json({ question })),
+
   entity: (name: string) =>
     request<{ raw: string; parsed: ParsedContext }>("/api/entity", json({ name })),
 

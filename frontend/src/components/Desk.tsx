@@ -2,13 +2,20 @@
  * Capture and ask — the everyday surface.
  *
  * The capture box has no edit button, and says so. Restating something IS the
- * edit: Reeve marks the previous fact superseded and keeps both, which is the
- * behaviour the whole project is about. An edit button would quietly destroy the
- * history that makes "when was it originally due?" answerable.
+ * edit: Reeve keeps both versions with their times, which is the behaviour the
+ * whole project is about. An edit button would destroy the history that makes
+ * "when was it originally due?" answerable.
+ *
+ * Evidence is fetched lazily, and that is a measured decision rather than a
+ * stylistic one. Bundling it into the ask meant every question paid for two
+ * sequential round trips — 28 seconds end to end — even though most answers are
+ * simply read and accepted. Asking first and fetching the receipts only when
+ * someone wants them roughly halves the wait and spends the second query only
+ * when it is actually going to be looked at.
  */
 
-import { useState } from "react";
-import { ApiError, Answer, PendingWrite, api } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { ApiError, Answer, ParsedContext, PendingWrite, api } from "../api";
 import { Evidence } from "./Evidence";
 
 export function Desk({
@@ -26,6 +33,23 @@ export function Desk({
   const [answer, setAnswer] = useState<Answer | null>(null);
   const [asking, setAsking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [evidence, setEvidence] = useState<ParsedContext | null>(null);
+  const [loadingEvidence, setLoadingEvidence] = useState(false);
+
+  // Answers take tens of seconds — a spinner with no number reads as "stuck".
+  const [elapsed, setElapsed] = useState(0);
+  const startedAt = useRef(0);
+  useEffect(() => {
+    if (!asking && !loadingEvidence) return;
+    startedAt.current = Date.now();
+    setElapsed(0);
+    const timer = setInterval(
+      () => setElapsed(Math.round((Date.now() - startedAt.current) / 1000)),
+      1000
+    );
+    return () => clearInterval(timer);
+  }, [asking, loadingEvidence]);
 
   const capture = async () => {
     if (!text.trim()) return;
@@ -47,17 +71,30 @@ export function Desk({
     }
   };
 
-  const ask = async (withEvidence: boolean) => {
+  const ask = async () => {
     if (!question.trim()) return;
     setAsking(true);
     setError(null);
+    setEvidence(null);
     try {
-      setAnswer(await api.ask(question, withEvidence));
+      setAnswer(await api.ask(question, false));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
       setAnswer(null);
     } finally {
       setAsking(false);
+    }
+  };
+
+  const showEvidence = async () => {
+    setLoadingEvidence(true);
+    setError(null);
+    try {
+      setEvidence((await api.context(question)).parsed);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setLoadingEvidence(false);
     }
   };
 
@@ -74,7 +111,7 @@ export function Desk({
         <textarea
           rows={3}
           value={text}
-          placeholder="Prof. Nair moved the DSP mini-project report deadline to 19 November."
+          placeholder="The DSP mini-project report deadline is now 19 November."
           onChange={(e) => setText(e.target.value)}
         />
         <div className="row" style={{ marginTop: "0.6rem" }}>
@@ -94,37 +131,46 @@ export function Desk({
           onChange={(e) => setQuestion(e.target.value)}
         />
         <div className="row" style={{ marginTop: "0.6rem" }}>
-          <button className="primary" onClick={() => ask(false)} disabled={asking || !question.trim()}>
-            Ask · 1 query
+          <button className="primary" onClick={ask} disabled={asking || !question.trim()}>
+            {asking ? `Thinking… ${elapsed}s` : "Ask · 1 query"}
           </button>
-          <button onClick={() => ask(true)} disabled={asking || !question.trim()}>
-            Ask + show evidence · 2 queries
-          </button>
-          {asking && <span className="hint" style={{ margin: 0 }}>Thinking…</span>}
+          <span className="hint" style={{ margin: 0 }}>
+            Answers usually take 10–30 seconds.
+          </span>
         </div>
-        <p className="hint" style={{ marginTop: "0.5rem" }}>
-          The cost is on the button on purpose. Evidence mode makes a second call
-          to fetch the raw retrieval context behind the answer.
-        </p>
       </section>
 
       {error && <div className="error">{error}</div>}
 
       {answer && (
-        <section className="card">
+        <section className="card answer-card">
           {unsettled > 0 && (
             <div className="caveat">
               {unsettled} {unsettled === 1 ? "memory is" : "memories are"} still
               settling. This answer may not include {unsettled === 1 ? "it" : "them"} yet.
             </div>
           )}
+          <p className="question-echo">{question}</p>
           <p className="answer">{answer.answer}</p>
           <div className="meta">
-            {answer.queries_used} quer{answer.queries_used === 1 ? "y" : "ies"} · {answer.took_ms} ms
+            <span>{answer.queries_used} quer{answer.queries_used === 1 ? "y" : "ies"}</span>
+            <span>{(answer.took_ms / 1000).toFixed(1)}s</span>
           </div>
-          {answer.evidence && (
+
+          {!evidence && (
+            <div className="row" style={{ marginTop: "0.8rem" }}>
+              <button onClick={showEvidence} disabled={loadingEvidence}>
+                {loadingEvidence ? `Fetching… ${elapsed}s` : "Show the evidence · 1 query"}
+              </button>
+              <span className="hint" style={{ margin: 0 }}>
+                The ranked memories this answer was built from.
+              </span>
+            </div>
+          )}
+
+          {evidence && (
             <div style={{ marginTop: "1rem", borderTop: "1px solid var(--border)", paddingTop: "0.8rem" }}>
-              <Evidence ctx={answer.evidence} />
+              <Evidence ctx={evidence} />
             </div>
           )}
         </section>

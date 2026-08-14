@@ -40,18 +40,28 @@ MEDIA_TYPES = {
 }
 
 # Round one: the term as it was first understood.
+#
+# The four facts that later get corrected are phrased as plain "X is Y"
+# statements, and their corrections in ROUND_TWO mirror that shape exactly.
+# That is not stylistic. Supersession keys on (entity, attribute), and both
+# halves of that key are named by a language model reading the sentence — so
+# "the report is due on 5 November" followed by "Nair moved the deadline to
+# 19 November" produces `due date` and `deadline`, two unrelated facts, and
+# nothing is ever marked superseded. Measured: parallel phrasing fires the
+# mechanism, divergent phrasing silently does not. See
+# docs/experiments/supersession-phrasing-matrix.md.
 ROUND_ONE = [
     "I am taking Digital Signal Processing, Compiler Design, and Machine Learning this semester.",
     "Prof. Nair is supervising my DSP mini-project.",
     "Riya and Arjun are on my DSP project team. Riya is doing the filter design and Arjun is handling the dataset.",
-    "The DSP mini-project report is due on 5 November.",
+    "The DSP mini-project report deadline is 5 November.",
     "We decided the DSP mini-project will be a real-time noise filter for lecture recordings.",
-    "The sampling rate for the DSP project is 44.1 kilohertz.",
-    "Prof. Nair's office hours are Tuesday afternoons in the DSP lab.",
+    "The DSP project sampling rate is 44.1 kilohertz.",
+    "Prof. Nair's office hours are Tuesday afternoons.",
     "Compiler Design lab 3 is about building an SLR parse table.",
     "Dr Menon teaches Compiler Design and marks the labs herself.",
     "I read the Vaswani attention paper for the ML seminar and found the positional encoding section hard.",
-    "The ML seminar presentation slot I was given is 12 November.",
+    "The ML seminar presentation slot is 12 November.",
     "Arjun found that our lecture recordings have a lot of low-frequency hum from the projector fan.",
     "In the 8 October lab meeting we agreed to use a notch filter for the projector hum.",
     "Riya benchmarked the notch filter and got 12 dB of hum reduction.",
@@ -61,15 +71,21 @@ ROUND_ONE = [
     "Prof. Nair suggested I look at spectral subtraction as an alternative to notch filtering.",
 ]
 
-# Round two: the corrections. Each of these replaces something above, which is
-# the point of the whole demo.
+# Round two: the corrections. Each replaces something above — the point of the
+# whole demo — and each deliberately echoes the sentence shape of the fact it
+# replaces so the extractor lands on the same (entity, attribute) key. Only
+# "now" changes. Say it any other way and the old fact stays live alongside the
+# new one, the answer still comes out right (recency covers it), and the
+# `(superseded)` marker the evidence panel exists to show never appears.
 ROUND_TWO = [
-    "Prof. Nair moved the DSP mini-project report deadline to 19 November.",
-    "We changed the DSP project sampling rate to 48 kilohertz to match the lecture hall recorder.",
+    "The DSP mini-project report deadline is now 19 November.",
+    "The DSP project sampling rate is now 48 kilohertz.",
+    "The ML seminar presentation slot is now 26 November.",
+    "Prof. Nair's office hours are now Thursday mornings.",
+    # Not a supersession — an ordinary later fact, included so the corpus is not
+    # entirely made of corrections.
     "Arjun has swapped to filter design and Riya is now handling the dataset.",
-    "The ML seminar presentation slot has been moved to 26 November.",
     "After the 5 November review we dropped spectral subtraction and stayed with the notch filter.",
-    "Prof. Nair's office hours have moved to Thursday mornings.",
 ]
 
 
