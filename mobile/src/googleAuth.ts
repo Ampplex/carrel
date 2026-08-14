@@ -45,8 +45,13 @@ import * as WebBrowser from "expo-web-browser";
 WebBrowser.maybeCompleteAuthSession();
 
 export const GOOGLE_CLIENT_IDS = {
-  ios: "",
-  android: "",
+  ios: "906486716708-1a416qkttft2c72n1abgarr3pic1h02c.apps.googleusercontent.com",
+  android: "906486716708-g1qlohftjcgn6fb3njf2bjnqs16e8kk7.apps.googleusercontent.com",
+  // Different project number from the Android client above, because this one is
+  // Reeve's and the Android client is Carrel's own. Mixing projects works: the
+  // server checks each token's audience against the whole list and does not
+  // care which project minted it. What does differ is the consent screen —
+  // people see the one belonging to whichever project issued their token.
   web: "230344192580-2vkurrmvpnfm74v5e01mmcm13himtd2n.apps.googleusercontent.com",
 };
 

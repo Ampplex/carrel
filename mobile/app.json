@@ -11,7 +11,14 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Carrel uses the camera so you can photograph a whiteboard, a slide or a page and ask about it later.",
-        "NSPhotoLibraryUsageDescription": "Carrel reads photos you choose so it can remember them and answer questions about them later."
+        "NSPhotoLibraryUsageDescription": "Carrel reads photos you choose so it can remember them and answer questions about them later.",
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.906486716708-1a416qkttft2c72n1abgarr3pic1h02c"
+            ]
+          }
+        ]
       },
       "bundleIdentifier": "com.ampplex.carrel"
     },
