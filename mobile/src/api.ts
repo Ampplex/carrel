@@ -14,6 +14,7 @@
 import * as SecureStore from "expo-secure-store";
 import * as LegacyFileSystem from "expo-file-system/legacy";
 import { SaveFormat, manipulateAsync } from "expo-image-manipulator";
+import { LEGAL_VERSION } from "./legal";
 
 /**
  * Your laptop's LAN address — `ipconfig getifaddr en0`.
@@ -256,7 +257,13 @@ async function readImage(image: PickedImage): Promise<{ base64: string; mediaTyp
 export const api = {
   // ── account ──────────────────────────────────────────────────────────────
   register: async (email: string, password: string, name: string): Promise<Session> => {
-    const s = await request<Session>("/api/auth/register", json({ email, password, name }));
+    // The version of the terms this build actually displayed travels with the
+    // registration, so the account records what was agreed to rather than
+    // whatever the server happens to be shipping later.
+    const s = await request<Session>(
+      "/api/auth/register",
+      json({ email, password, name, terms_version: LEGAL_VERSION })
+    );
     await setToken(s.token);
     return s;
   },

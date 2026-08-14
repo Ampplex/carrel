@@ -18,7 +18,6 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
-  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,7 +27,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError, Session, api } from "../api";
+import { Sheet } from "../components/Sheet";
+import { LEGAL_VERSION } from "../legal";
 import { theme as t } from "../theme";
+import { Legal, LegalTab } from "./Legal";
 
 const PHRASE = "DELETE MY MEMORY";
 
@@ -48,6 +50,7 @@ export function Settings({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [legal, setLegal] = useState<LegalTab | null>(null);
   const insets = useSafeAreaInsets();
 
   const reset = () => {
@@ -84,7 +87,7 @@ export function Settings({
   };
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+    <Sheet open={visible} onClose={onClose}>
       <View style={[s.screen, { paddingTop: insets.top + 8 }]}>
         <View style={s.header}>
           <Text style={s.title}>Settings</Text>
@@ -109,6 +112,20 @@ export function Settings({
               <Text style={s.doneText}>{done}</Text>
             </View>
           )}
+
+          {/* Above the danger zone rather than below it: the privacy notice is
+              what explains where the data being erased actually lives, and
+              burying it under the destructive buttons puts it after the point
+              where somebody needed it. */}
+          <Text style={s.sectionLabel}>About</Text>
+          <Pressable style={s.card} onPress={() => setLegal("terms")}>
+            <Text style={s.action}>Terms of Use</Text>
+          </Pressable>
+          <Pressable style={s.card} onPress={() => setLegal("privacy")}>
+            <Text style={s.action}>Privacy Policy</Text>
+            <Text style={s.sub}>What is stored, where it goes, and how to get rid of it.</Text>
+          </Pressable>
+          <Text style={s.version}>Agreements version {LEGAL_VERSION}</Text>
 
           <Text style={s.sectionLabel}>Your data</Text>
           <Text style={s.explain}>
@@ -170,8 +187,10 @@ export function Settings({
             </View>
           )}
         </ScrollView>
+
+        <Legal open={legal} onClose={() => setLegal(null)} />
       </View>
-    </Modal>
+    </Sheet>
   );
 }
 
@@ -208,6 +227,7 @@ const s = StyleSheet.create({
   sub: { color: t.color.inkTertiary, ...t.text.small, marginTop: 3, lineHeight: 17 },
   action: { color: t.color.ink, ...t.text.body },
   danger: { color: t.color.danger, ...t.text.body },
+  version: { color: t.color.inkTertiary, ...t.text.small, marginTop: 2, marginLeft: 2 },
 
   confirmBox: {
     backgroundColor: t.color.dangerSoft,

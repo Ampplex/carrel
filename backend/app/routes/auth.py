@@ -20,6 +20,9 @@ class Credentials(BaseModel):
     email: str = Field(min_length=3, max_length=200)
     password: str = Field(min_length=1, max_length=200)
     name: str = ""
+    # Sent by the sign-up form, ignored on sign-in. Optional so a client that
+    # predates the field can still register rather than being turned away.
+    terms_version: str = Field(default="", max_length=40)
 
 
 class Session(BaseModel):
@@ -31,7 +34,9 @@ class Session(BaseModel):
 @router.post("/api/auth/register", response_model=Session)
 def register(payload: Credentials) -> Session:
     try:
-        result = auth.register(payload.email, payload.password, payload.name)
+        result = auth.register(
+            payload.email, payload.password, payload.name, payload.terms_version
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return Session(token=result["token"], email=result["email"], name=result["name"])

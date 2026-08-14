@@ -82,7 +82,7 @@ def _namespace_for(email: str) -> str:
     return "u" + hashlib.sha256(email.lower().encode("utf-8")).hexdigest()[:16]
 
 
-def register(email: str, password: str, name: str = "") -> dict:
+def register(email: str, password: str, name: str = "", terms_version: str = "") -> dict:
     email = (email or "").strip().lower()
     if not _EMAIL_RE.match(email):
         raise ValueError("That does not look like an email address.")
@@ -100,6 +100,13 @@ def register(email: str, password: str, name: str = "") -> dict:
             "hash": _hash(password, salt),
             "namespace": _namespace_for(email),
             "created_at": time.time(),
+            # Which wording was on screen when this account was created. The
+            # client sends it because the client is what displayed it; the
+            # server's own copy may have moved on by the time anyone looks.
+            # Not enforced — an older or absent version is a fact to record,
+            # not a reason to refuse a sign-up.
+            "terms_version": (terms_version or "").strip()[:40],
+            "terms_accepted_at": time.time(),
         }
         _write(_USERS, users)
     return _issue(email)
