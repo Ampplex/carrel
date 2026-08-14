@@ -471,10 +471,10 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
             <Text style={s.status}>{unsettled} still settling</Text>
           )}
         </View>
-
-        <Pressable onPress={onSignOut} hitSlop={10}>
-          <Text style={s.signOut}>Sign out</Text>
-        </Pressable>
+        {/* No sign-out here. It lives in Settings, next to the other things
+            that end a session, and a permanent exit in the corner of the screen
+            you spend all your time on is a button whose only use is being hit
+            by mistake. */}
       </View>
 
       <ChatList
@@ -681,7 +681,6 @@ const s = StyleSheet.create({
   },
   brand: { color: t.color.ink, ...t.text.title, fontSize: 20 },
   status: { color: t.color.inkTertiary, ...t.text.small, marginTop: 1 },
-  signOut: { color: t.color.inkSecondary, ...t.text.small },
 
   list: { padding: 16, paddingBottom: 10 },
 
