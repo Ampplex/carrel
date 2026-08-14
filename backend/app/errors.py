@@ -60,6 +60,18 @@ _RULES: list[tuple] = [
         None,
     ),
     (
+        # Reeve's own HTTP layer rejecting the payload, before its 4 MB image
+        # check is ever reached — base64 inflates bytes by a third, so a photo
+        # that passes our size limit can still be too large on the wire.
+        _has("413", "request entity too large", "payload too large"),
+        413,
+        "image_too_large_for_reeve",
+        "That photo is too large to send. It should have been shrunk before "
+        "upload — if you are seeing this, the resize step did not run.",
+        False,
+        None,
+    ),
+    (
         _has("rate limit", "too many requests", "429"),
         429,
         "rate_limited",
