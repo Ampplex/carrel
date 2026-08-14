@@ -29,6 +29,7 @@ import {
   Animated,
   Dimensions,
   FlatList,
+  Image,
   Modal,
   PanResponder,
   Pressable,
@@ -37,7 +38,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { ApiError, ChatSummary, api } from "../api";
+import { ApiError, ChatSummary, Session, api } from "../api";
 import { theme as t } from "../theme";
 
 /** Leaves a strip of the conversation showing behind the panel. */
@@ -51,12 +52,14 @@ const FLICK_VELOCITY = 0.5;
 export function ChatList({
   visible,
   currentId,
+  session,
   onPick,
   onClose,
   onSettings,
 }: {
   visible: boolean;
   currentId: string | null;
+  session: Session;
   onPick: (id: string) => void;
   onClose: () => void;
   onSettings: () => void;
@@ -234,8 +237,12 @@ export function ChatList({
           />
         )}
 
+        {/* The account, and the way out of it, in one row at the bottom —
+            where every app of this shape puts it. The photograph is Google's,
+            loaded straight from their URL; accounts without one fall back to an
+            initial, because a broken image frame reads as a bug. */}
         <Pressable
-          style={s.settingsRow}
+          style={s.accountRow}
           onPress={() => {
             // Announce the intent and close. Opening Settings on a timer from
             // here raced the drawer's own dismissal — see components/Sheet for
@@ -244,8 +251,26 @@ export function ChatList({
             onSettings();
             close();
           }}
+          accessibilityRole="button"
+          accessibilityLabel="Settings"
         >
-          <Text style={s.settingsText}>Settings</Text>
+          {session.avatar_url ? (
+            <Image source={{ uri: session.avatar_url }} style={s.avatar} />
+          ) : (
+            <View style={[s.avatar, s.avatarFallback]}>
+              <Text style={s.avatarInitial}>
+                {(session.name || session.email).trim().charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          <View style={s.accountText}>
+            <Text style={s.accountName} numberOfLines={1}>
+              {session.name || session.email}
+            </Text>
+            <Text style={s.accountSub} numberOfLines={1}>
+              Settings
+            </Text>
+          </View>
         </Pressable>
 
         <Text style={[s.footnote, { marginBottom: insets.bottom + 8 }]}>
@@ -308,13 +333,21 @@ const s = StyleSheet.create({
   rowPreview: { color: t.color.inkTertiary, ...t.text.small, marginTop: 2 },
   count: { color: t.color.inkTertiary, ...t.text.mono },
 
-  settingsRow: {
-    paddingVertical: 13,
+  accountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 11,
+    paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: t.color.border,
     marginTop: 6,
   },
-  settingsText: { color: t.color.ink, ...t.text.label },
+  avatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: t.color.cardRaised },
+  avatarFallback: { alignItems: "center", justifyContent: "center" },
+  avatarInitial: { color: t.color.accent, ...t.text.label, fontSize: 15 },
+  accountText: { flex: 1 },
+  accountName: { color: t.color.ink, ...t.text.body, fontSize: 14.5 },
+  accountSub: { color: t.color.inkTertiary, ...t.text.small, marginTop: 1 },
   empty: { color: t.color.inkTertiary, ...t.text.small, textAlign: "center", marginTop: 40 },
   error: { color: t.color.danger, ...t.text.small, marginBottom: 12 },
   footnote: {

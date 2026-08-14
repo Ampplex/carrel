@@ -100,7 +100,7 @@ export const PRIVACY: LegalDoc = {
     {
       heading: "If you sign in with Google",
       body:
-        "Google tells Carrel three things: your email address, the name on the account, and the account's identifier. Nothing else — no contacts, no calendar, no Drive, no profile beyond that. Carrel never sees your Google password and cannot act on your Google account. Signing in with Google on an address that already has a Carrel password reaches the same memory rather than a second empty one, because your data is keyed to the address either way. What Google records about the sign-in itself is governed by Google's own privacy policy.",
+        "Google tells Carrel four things: your email address, the name on the account, the account's identifier, and the web address of your profile photo. Nothing else — no contacts, no calendar, no Drive, no profile beyond that. The photo itself is never copied here; the app loads it from Google's servers when it draws your account, so only the link is stored. Carrel never sees your Google password and cannot act on your Google account. Signing in with Google on an address that already has a Carrel password reaches the same memory rather than a second empty one, because your data is keyed to the address either way. What Google records about the sign-in itself is governed by Google's own privacy policy.",
     },
     {
       heading: "What is not collected",

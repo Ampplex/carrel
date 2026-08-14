@@ -44,6 +44,10 @@ class GoogleIdentity:
     email: str
     name: str
     subject: str  # Google's stable per-account id, kept for the audit trail
+    # A Google-hosted URL. Deliberately not downloaded and re-served: copying
+    # somebody's photograph onto this server means storing a picture of a person
+    # in order to display one they already host.
+    picture: str = ""
 
 
 def configured() -> bool:
@@ -96,8 +100,13 @@ def verify(raw_token: str) -> GoogleIdentity:
     if not claims.get("email_verified"):
         raise GoogleAuthError("That Google account's email address is not verified.")
 
+    picture = str(claims.get("picture") or "").strip()
     return GoogleIdentity(
         email=str(claims["email"]).strip().lower(),
         name=str(claims.get("name") or "").strip()[:60],
         subject=str(claims.get("sub") or ""),
+        # https only. The claim is signed, so this is Google's own URL rather
+        # than attacker-controlled — but a scheme check costs nothing and stops
+        # a javascript: or data: URL ever reaching an <Image>.
+        picture=picture if picture.startswith("https://") else "",
     )

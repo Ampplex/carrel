@@ -143,7 +143,11 @@ def login(email: str, password: str) -> dict:
 
 
 def sign_in_with_google(
-    email: str, name: str = "", subject: str = "", terms_version: str = ""
+    email: str,
+    name: str = "",
+    subject: str = "",
+    terms_version: str = "",
+    picture: str = "",
 ) -> dict:
     """Find or create the account behind an already-verified Google identity.
 
@@ -180,9 +184,14 @@ def sign_in_with_google(
                 "terms_version": (terms_version or "").strip()[:40],
                 "terms_accepted_at": now,
                 "google_sub": subject,
+                "avatar_url": picture,
             }
         else:
             user["google_sub"] = subject or user.get("google_sub", "")
+            # Refreshed every sign-in: people change their Google photo, and a
+            # stale one is worse than none.
+            if picture:
+                user["avatar_url"] = picture
             # Only fills a gap; never overwrites a name the person chose here.
             if name and not user.get("name"):
                 user["name"] = name.strip()[:60]
@@ -209,6 +218,7 @@ def _issue(email: str) -> dict:
         "email": email,
         "name": user.get("name", ""),
         "namespace": user["namespace"],
+        "avatar_url": user.get("avatar_url", ""),
     }
 
 
@@ -259,6 +269,7 @@ def resolve(token: str) -> dict | None:
         "email": session["email"],
         "name": user.get("name", ""),
         "namespace": user["namespace"],
+        "avatar_url": user.get("avatar_url", ""),
     }
 
 

@@ -77,7 +77,7 @@ export default function App() {
             setBoot({
               stage: "ready",
               initial: "Home",
-              session: { token, email: me.email, name: me.name },
+              session: { token, email: me.email, name: me.name, avatar_url: me.avatar_url },
             });
           }
           return;

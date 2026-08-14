@@ -481,6 +481,7 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
       <ChatList
         visible={listOpen}
         currentId={chatId}
+        session={session}
         onPick={openChat}
         // Settings is opened here, on the drawer's own report that it has
         // finished closing, rather than inside the drawer on a timer. The

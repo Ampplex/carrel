@@ -3,7 +3,10 @@
     "name": "Carrel",
     "slug": "Carrel",
     "version": "1.0.0",
-    "scheme": "carrel",
+    "scheme": [
+      "carrel",
+      "com.ampplex.carrel"
+    ],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",

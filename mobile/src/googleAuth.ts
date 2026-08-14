@@ -94,6 +94,25 @@ export function useGoogleSignIn(
     iosClientId: GOOGLE_CLIENT_IDS.ios || undefined,
     androidClientId: GOOGLE_CLIENT_IDS.android || undefined,
     webClientId: GOOGLE_CLIENT_IDS.web || undefined,
+    // openid is what makes the token exchange return an ID token at all;
+    // without it we would get an access token and nothing to verify.
+    scopes: ["openid", "profile", "email"],
+    // Stated outright rather than inferred, because the inference is broken
+    // here. The provider builds its native redirect from
+    // `Application.applicationId`, which comes from expo-application — a
+    // package this project does not have. So it read `undefined`, produced
+    // "undefined:/oauthredirect", and makeRedirectUri quietly fell back to the
+    // dev server's address: http://localhost:8081. Google refuses that outright
+    // ("Access blocked"), because native OAuth clients accept only custom
+    // schemes, never http.
+    //
+    // Android registers the scheme as the package name; iOS as the reversed
+    // client id, which is the one already claimed in app.json.
+    redirectUri: Platform.select({
+      android: "com.ampplex.carrel:/oauthredirect",
+      ios: "com.googleusercontent.apps.906486716708-1a416qkttft2c72n1abgarr3pic1h02c:/oauthredirect",
+      default: undefined,
+    }),
   });
 
   // Held in refs so the effect below depends on the response alone. With the

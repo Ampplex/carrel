@@ -72,6 +72,8 @@ export interface Session {
   token: string;
   email: string;
   name: string;
+  /** Google-hosted profile photo. Empty for password-only accounts. */
+  avatar_url?: string;
 }
 
 export interface StateFact {

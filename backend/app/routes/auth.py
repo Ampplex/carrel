@@ -29,6 +29,9 @@ class Session(BaseModel):
     token: str
     email: str
     name: str
+    # Google-hosted, empty for password accounts. The client renders it; the
+    # server never fetches or stores the image itself.
+    avatar_url: str = ""
 
 
 @router.post("/api/auth/register", response_model=Session)
@@ -39,7 +42,12 @@ def register(payload: Credentials) -> Session:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return Session(token=result["token"], email=result["email"], name=result["name"])
+    return Session(
+        token=result["token"],
+        email=result["email"],
+        name=result["name"],
+        avatar_url=result.get("avatar_url", ""),
+    )
 
 
 @router.post("/api/auth/login", response_model=Session)
@@ -49,7 +57,12 @@ def login(payload: Credentials) -> Session:
     except ValueError as exc:
         # 401 rather than 400: the credentials were well-formed and rejected.
         raise HTTPException(status_code=401, detail=str(exc)) from exc
-    return Session(token=result["token"], email=result["email"], name=result["name"])
+    return Session(
+        token=result["token"],
+        email=result["email"],
+        name=result["name"],
+        avatar_url=result.get("avatar_url", ""),
+    )
 
 
 class GoogleIn(BaseModel):
@@ -74,11 +87,20 @@ def google_sign_in(payload: GoogleIn) -> Session:
 
     try:
         result = auth.sign_in_with_google(
-            identity.email, identity.name, identity.subject, payload.terms_version
+            identity.email,
+            identity.name,
+            identity.subject,
+            payload.terms_version,
+            identity.picture,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return Session(token=result["token"], email=result["email"], name=result["name"])
+    return Session(
+        token=result["token"],
+        email=result["email"],
+        name=result["name"],
+        avatar_url=result.get("avatar_url", ""),
+    )
 
 
 @router.post("/api/auth/logout")
@@ -92,4 +114,6 @@ def logout(authorization: str = Header(default="")) -> dict:
 @router.get("/api/auth/me", response_model=Session)
 def me(user: dict = Depends(auth.current_user)) -> Session:
     """Used on app launch to decide between the sign-in screen and the chat."""
-    return Session(token="", email=user["email"], name=user["name"])
+    return Session(
+        token="", email=user["email"], name=user["name"], avatar_url=user.get("avatar_url", "")
+    )
