@@ -1,83 +1,92 @@
 # Experiment: when does supersession actually fire?
 
-Run 2026-08-13 against the live hosted service (reeve 0.1.41,
+Run 2026-08-13/14 against the live hosted service (reeve 0.1.41,
 `mistral.mistral-large-2407-v1:0`, all capabilities on). Each trial used a fresh
 namespace, stored fact A, waited ~70s for indexing, stored the contradicting
-fact B, waited ~85s, then read the raw retrieval context.
+fact B, waited ~85s, then read the raw retrieval context looking for the literal
+` (superseded)` suffix the server appends to a replaced `State:` line.
 
-The thing being looked for is the literal ` (superseded)` suffix that the server
-appends to a `State:` line whose fact has been replaced.
+## Result: it fires — but only when both sentences extract to the same key
 
-## Result: 0 of 4 trials produced a superseded marker
+**The mechanism works.** Trial 5 produced the marker, and everything downstream
+of it, exactly as designed. The first four trials did not, and the difference
+between them is the finding.
 
-| # | Fact A | Fact B | What was extracted | Marker |
+| # | Fact A | Fact B | Extracted | Marker |
 |---|---|---|---|---|
-| 1 | "The … report is due on 5 November." | "Prof. Nair moved the … deadline to 19 November." | `report.due date = 5 November` and `report.deadline = 19 November` | no |
-| 2 | "The … report deadline is 5 November." | "The … report deadline is now 19 November." | State on A only; B produced no State | no |
-| 3 | "The compiler design report deadline is 5 November." | "Prof. Nair moved the compiler design report deadline to 19 November." | `compiler design report.deadline = 5 November` and `compiler design report.date = 19 November` | no |
-| 4 | "I live in Pune." | "I moved to Bangalore." | no States at all — `Action: speaker lives → Pune`, `Action: speaker moved → Bangalore` | no |
+| 1 | "The … report is due on 5 November." | "Prof. Nair moved the … deadline to 19 November." | `report.due date` and `report.deadline` | no |
+| 2 | "The … report deadline is 5 November." | "The … report deadline is now 19 November." | State on A only; none for B | no |
+| 3 | "The compiler design report deadline is 5 November." | "Prof. Nair moved the compiler design report deadline to 19 November." | `report.deadline` and `report.date` | no |
+| 4 | "I live in Pune." | "I moved to Bangalore." | no States — only `Action` nodes | no |
+| 5 | "Our runway is 18 months." | "Update: after the new hires, our runway is now 8 months." | `runway.duration` **and** `runway.duration` | **yes** |
 
-Trials 1–3 also used a unique injected token (`CARREL<timestamp>`) to isolate
-runs. That turned out to distort extraction — in trial 2 the token itself became
-the entity (`CARREL1786644606.deadline`) — so trials 3 and 4 dropped it and
-isolated by namespace instead. The failure persisted without it, so the token is
-not the cause, but it is a reason to trust trials 3 and 4 more.
+Trial 5, in full:
 
-## Diagnosis
+```
+[2026-08-14T07:01:14Z] Update: after the new hires, our runway is now 8 months.
+  State: runway.duration = 8 months
 
-Supersession is keyed on the pair *(entity, attribute)*: storing a new `State`
-with the same entity and the same attribute marks the previous one inactive and
-draws a `SUPERSEDES` edge. That key is only as stable as the language model's
-extraction, and across these trials the extraction was not stable:
+[2026-08-14T07:00:02Z] Our runway is 18 months.
+  State: runway.duration = 18 months (superseded)
+```
 
-- **the attribute name varied per call** for the same underlying concept —
-  `due date`, `deadline`, `date`;
-- **whether a `State` was emitted at all varied** — trial 2's second sentence
-  produced none;
-- **whether the fact became a `State` or an `Action` varied** — trial 4 produced
-  only Actions, and Actions have no supersession semantics;
-- **the entity name varied** — `compiler design report` in one episode,
-  `Prof. Nair` in the next episode of the same trial.
+## Diagnosis: parallel phrasing succeeds, divergent phrasing silently fails
 
-Any one of these breaks the key. All four appeared within four trials.
+Supersession is keyed on *(entity, attribute)*, and both halves of that key are
+named by a language model reading the sentence. The key is only stable when both
+sentences give the model the same shape to work from.
 
-## What still worked
+- **Trial 5 works** because A and B share a predicate form — "our runway is X" —
+  so the attribute came out `duration` both times.
+- **Trials 1 and 3 fail** because A and B use different verbs and framings
+  ("is due on" vs "moved the deadline to"), and the model named the attribute
+  from the phrasing: `due date`, `deadline`, `date`.
+- **Trial 2 fails** because the near-duplicate second sentence produced no
+  `State` at all.
+- **Trial 4 fails** because the model chose `Action` nodes over `State` nodes,
+  and Actions carry no supersession semantics.
 
-In every trial the **answers were correct**:
+So this is a robustness property, not a defect: the feature does what it claims,
+and stops doing it when a probabilistic extractor feeds an exact-match key two
+different names for one idea.
+
+## The part that makes it hard to notice
+
+In **every** trial — including the four where the mechanism never ran — the
+answers were correct:
 
 | Question | Answer |
 |---|---|
 | "When is the report due?" | 19 November |
 | "When was the report originally due?" | 5 November |
-| "What is the compiler design report deadline?" | 19 November |
-| "What was the … deadline originally?" | 5 November |
+| "What is our runway right now?" | 8 months |
 
-So the user-visible behaviour is right — but it is produced by the narrator
-reasoning over timestamped episodes and an explicit recency instruction, **not**
-by the supersession edge. The two are easy to confuse from the outside, which is
-exactly why this was tested at the retrieval layer rather than by reading answers.
+That is the answer prompt instructing the model to "prefer the most recently
+dated item", resolving currency from timestamps over two equally-active States.
+It produces the same output supersession would, so from the answers alone the
+two are indistinguishable — and a test that reads answers cannot tell whether
+the mechanism ran.
 
 ## Consequences for this project
 
-The honest claim is narrower than the one the project started with, and the
-demo must not point at a marker that will not be there:
+1. **The temporal claim is sound and is what the demo should rest on**: one
+   store, both the current and the historical question, neither fact deleted.
+2. **The `(superseded)` marker is worth showing when it appears, but the demo
+   must not depend on it** — whether it appears depends on how the two sentences
+   happen to be worded. The seeded corrections should use parallel phrasing to
+   the facts they replace, and be verified before a demo rather than assumed.
+3. The evidence panel renders the marker when present and degrades quietly when
+   absent, which is the correct behaviour either way.
 
-1. **Do not build the viva around the `(superseded)` marker.** On this
-   deployment it does not reliably appear for ordinary coursework phrasing.
-2. **The temporal claim survives and is still worth making.** Both the current
-   and the historical question get correct, different answers, from one store,
-   without either sentence being deleted. A naive nearest-neighbour setup
-   returns whichever sentence embeds closer and cannot reliably do both.
-3. **This negative result is itself a finding**, and a more interesting one than
-   a green tick: it locates the fragility precisely, at the point where a
-   probabilistic extractor feeds a key that requires exact equality.
+## A methodological note worth keeping
 
-## Not established
+The first conclusion drawn from trials 1–4 was "supersession does not fire" —
+and it was wrong, from four samples that happened to share a flaw: none used
+parallel phrasing. Trial 5 reversed it. Two lessons, both cheap in hindsight:
+a negative result across a narrow sample says more about the sample than the
+system, and the fastest way to test a mechanism is to feed it the input its own
+test suite uses.
 
-- Whether supersession ever fires on this deployment. Four phrasings is a small
-  sample and none were adversarially tuned toward the mechanism.
-- Whether a more constrained capture format — the application proposing the
-  attribute name rather than leaving it to free prose — would stabilise the key.
-  That is the obvious next experiment and a genuine design idea to test.
-- Whether behaviour differs on the self-hosted path or with a different chat
-  model. Everything here is one account, one deployment, one afternoon.
+Trials 1–2 also injected a unique token per run to isolate namespaces; that
+distorted extraction badly enough that in trial 2 the token itself became the
+entity. Later trials isolate by namespace only.

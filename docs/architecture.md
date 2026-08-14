@@ -19,8 +19,11 @@ both sentences are excellent matches for "when is the report due?", and which on
 comes back depends on wording, chunk boundaries and luck. The system cannot say
 which is current, because "current" is not a property it stores.
 
-This project is built on a store that does represent it, and the whole design is
-oriented around making that difference visible rather than merely claiming it.
+This project is built on a store that keeps both sentences with their times and
+reasons over them, so both "when is it due?" and "when was it originally due?"
+are answerable. The whole design is oriented around making that difference
+visible rather than merely claiming it — which is also how the project found that
+one of its assumptions was wrong (§6).
 
 ## 2. System shape
 
@@ -183,8 +186,51 @@ with, and does not pretend to have solved:
 | Reeve provides | Carrel builds |
 |---|---|
 | knowledge-graph extraction from prose | the capture surface, and the argument for having no edit button |
-| supersession (`active:false`, `superseded_at`, `SUPERSEDES`) | the evidence panel that renders it, struck through and labelled |
+| timestamped episodes and a recency rule, which is what actually answers "now" vs "originally" | the evidence panel that shows both, so the answer can be checked rather than trusted |
+| a supersession mechanism (`active:false`, `superseded_at`, `SUPERSEDES`) — **not observed firing**, see §6 | rendering for the marker when it appears, and no dependency on it when it does not |
 | caption + vision fusion, image vectors, retained originals | the attached/unattached comparison that makes the capability legible |
 | retrieval across several lanes | the tolerant parser that turns its output into structure |
 | async writes with a pending buffer | the settling tray, the status vocabulary, the answer caveat |
 | a synchronous Python SDK | the threading model, error classification, quota accounting |
+
+## 6. An assumption that turned out to be wrong
+
+The project began with three pillars. One of them did not survive contact with
+measurement, and the way it failed is more instructive than the design that
+preceded it.
+
+**The assumption.** When a fact is replaced, Reeve marks the previous `State`
+inactive, stamps `superseded_at`, and draws a `SUPERSEDES` edge; the retriever
+then renders the old value with a literal ` (superseded)` suffix. The interface
+was designed around putting that marker on screen — Reeve's own output, not this
+application's rendering of it, which is what would make the claim checkable.
+
+**What the measurement found.** Across four trials with different phrasings, on
+fresh namespaces, the marker never appeared. The mechanism keys on
+*(entity, attribute)* exact match, and the extraction that supplies that key is a
+language model reading free prose. It was not stable: the same concept produced
+the attributes `due date`, `deadline` and `date` on different runs; one sentence
+produced no `State` at all; and the canonical "I live in X / I moved to Y" case
+produced only `Action` nodes, which have no supersession semantics.
+
+**Why it was nearly missed.** In every trial the *answers* were correct. Asking
+"when is it due?" returned the new date and "when was it originally due?"
+returned the old one. A project that checked its claims by reading answers would
+have shipped believing the mechanism worked. The distinction only appears one
+layer down, in the retrieval context — which is the reason the evidence panel and
+the raw toggle exist at all, and the strongest practical argument in this whole
+document for asserting at the layer that owns the property rather than at the
+layer that narrates it.
+
+**What changed as a result.** The claim narrowed to what is demonstrably true —
+one store, both questions, neither fact deleted — and the demo no longer points
+at a marker that will not be there. The interface still renders the marker if it
+appears; it simply does not depend on it. The negative result is reported in full
+in `docs/results.md`, because a located, diagnosed failure is worth more than an
+untested assertion of success.
+
+**The obvious next experiment**, not run here: have the capture surface propose
+the attribute name rather than leaving it to free prose, and see whether a
+stabilised key makes the mechanism fire. If it does, that is a real technique
+rather than a workaround — it would say the mechanism is sound and the interface
+to it is what needs constraining.

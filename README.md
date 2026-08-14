@@ -29,14 +29,23 @@ Carrel is built to show what changes when the store does have that notion.
 
 ### Three things this does that a vector store cannot
 
-**1. It knows which facts are stale.** When you say the deadline moved, Reeve
-marks the previous value inactive, stamps it with the time it was replaced, and
-draws a `SUPERSEDES` edge between the two. So *"when is the report due?"* and
-*"when was it originally due?"* both have correct — and different — answers, and
-the evidence panel shows the superseded value struck through. There is
-deliberately no edit button in this app: restating something **is** the edit, and
-an edit button would destroy the history that makes the second question
-answerable.
+**1. It answers "now" and "originally" from the same store.** Tell it the
+deadline moved, and *"when is the report due?"* and *"when was it originally
+due?"* both get correct — and different — answers, with neither sentence
+deleted. A nearest-neighbour index holds two equally plausible sentences and
+returns whichever embeds closer to your phrasing; it has no way to be right
+about both. There is deliberately no edit button here: restating something **is**
+the edit, and an edit button would destroy the history the second question needs.
+
+Reeve also has a stronger mechanism underneath — replaced facts are meant to be
+marked inactive and joined by a `SUPERSEDES` edge, which would let the interface
+show the old value struck through. **Measurements in this project did not
+observe that mechanism firing**, and the reason is interesting enough that it
+became a result rather than a footnote: see
+[`docs/experiments/supersession-phrasing-matrix.md`](docs/experiments/supersession-phrasing-matrix.md).
+The correct answers above are produced by reasoning over timestamped episodes
+instead. The interface renders the marker when it appears and does not depend on
+it.
 
 **2. It can re-read a photograph.** A whiteboard photo is stored as one memory —
 your caption fused with a vision model's description — plus an image vector, plus

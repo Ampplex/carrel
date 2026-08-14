@@ -72,17 +72,62 @@ distinguish "always visible" from "visible this time". This needs repeating
 across several runs and times of day before the UI is redesigned around it — and
 a non-deterministic result would itself be the finding.
 
-## 2. Supersession
+## 2. Supersession and temporal correctness
 
-The claim: the store knows which of two contradictory facts replaced the other.
+Two claims were tested here, and they came apart. Full transcripts:
+`docs/experiments/supersession-phrasing-matrix.md`.
 
-Method: store a fact, wait for indexing, store a contradicting fact, wait again,
-then ask both the present-tense and the historical question and capture the raw
-retrieval context verbatim.
+### 2a. Does the store answer both the current and the historical question? Yes.
 
-| Question | Answer | Raw `State:` line |
-|---|---|---|
-| _pending_ | | |
+| Question | Answer |
+|---|---|
+| "When is the report due?" | 19 November |
+| "When was the report originally due?" | 5 November |
+| "What is the compiler design report deadline?" | 19 November |
+| "What was the compiler design report deadline originally?" | 5 November |
+
+Correct in every trial, from one store, with neither sentence deleted. This is
+the claim the project makes, and it holds.
+
+### 2b. Does the `SUPERSEDES` mechanism fire? Yes — when both facts extract to the same key. 1 of 5 trials.
+
+Method: fresh namespace per trial; store fact A; wait ~70s for indexing; store
+contradicting fact B; wait ~85s; read the raw retrieval context and look for the
+literal ` (superseded)` suffix the server appends to a replaced `State:` line.
+
+| # | Phrasing pair | Extracted | Marker |
+|---|---|---|---|
+| 1 | "is due on" / "moved the deadline to" | `report.due date` and `report.deadline` | no |
+| 2 | "deadline is" / "deadline is now" | State on A only; none for B | no |
+| 3 | "deadline is" / "Nair moved the deadline to" | `report.deadline` and `report.date` | no |
+| 4 | "I live in Pune" / "I moved to Bangalore" | no States — only `Action` nodes | no |
+| 5 | "our runway is 18 months" / "our runway is now 8 months" | `runway.duration` **twice** | **yes** |
+
+**Diagnosis: parallel phrasing succeeds, divergent phrasing silently fails.**
+Supersession is keyed on *(entity, attribute)* exact match, and both halves are
+named by a language model reading the sentence. Trial 5's two sentences share a
+predicate form, so the attribute came out `duration` both times and the mechanism
+ran exactly as designed. Trials 1 and 3 used different verbs for the two halves
+and got different attribute names for one idea; trial 2 produced no `State` for
+its second sentence; trial 4 produced `Action` nodes, which have no supersession
+semantics. Any one of those breaks the key.
+
+**2a does not depend on 2b.** Correct temporal answers appeared in all five
+trials, including the four where the mechanism never ran — the narrator resolves
+currency from timestamps under an explicit recency instruction, producing the
+same output supersession would. From the answers alone the two are
+indistinguishable, which is exactly why this was asserted at the retrieval layer.
+
+**Method note.** The first conclusion drawn here, from trials 1–4, was
+"supersession does not fire". Trial 5 refuted it. The four samples shared a flaw —
+none used parallel phrasing — and a negative result across a narrow sample says
+more about the sample than the system. Trials 1–2 additionally injected a unique
+token per run, which distorted extraction enough that in trial 2 the token became
+the entity; later trials isolate by namespace only.
+
+**Not established:** how often divergent phrasing occurs in genuine use, and
+whether a capture format that proposes the attribute name rather than leaving it
+to free prose would stabilise the key. One account, one model, five trials.
 
 ## 3. Photo re-interrogation
 
