@@ -107,6 +107,10 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
   const [listOpen, setListOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Set when the drawer's Settings row is tapped, read when the drawer reports
+  // it has closed. A ref rather than state: nothing renders differently for it,
+  // and it must survive the render the drawer's closure triggers.
+  const wantsSettings = useRef(false);
   // Grows out of the + button rather than sliding up from the bottom of the
   // screen, so the menu reads as belonging to the control that opened it.
   const attachAnim = useRef(new Animated.Value(0)).current;
@@ -477,8 +481,20 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
         visible={listOpen}
         currentId={chatId}
         onPick={openChat}
-        onClose={() => setListOpen(false)}
-        onSettings={() => setSettingsOpen(true)}
+        // Settings is opened here, on the drawer's own report that it has
+        // finished closing, rather than inside the drawer on a timer. The
+        // drawer is a real iOS modal; anything that appears while it is still
+        // presented is at the mercy of UIKit's presentation stack.
+        onClose={() => {
+          setListOpen(false);
+          if (wantsSettings.current) {
+            wantsSettings.current = false;
+            setSettingsOpen(true);
+          }
+        }}
+        onSettings={() => {
+          wantsSettings.current = true;
+        }}
       />
 
       <Settings

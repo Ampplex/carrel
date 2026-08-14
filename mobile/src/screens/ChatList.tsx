@@ -237,9 +237,12 @@ export function ChatList({
         <Pressable
           style={s.settingsRow}
           onPress={() => {
+            // Announce the intent and close. Opening Settings on a timer from
+            // here raced the drawer's own dismissal — see components/Sheet for
+            // what that cost. The parent now opens it when this modal is
+            // genuinely gone, which is a fact rather than an estimate.
+            onSettings();
             close();
-            // Let the drawer finish sliding out before the sheet comes up.
-            setTimeout(onSettings, 180);
           }}
         >
           <Text style={s.settingsText}>Settings</Text>
