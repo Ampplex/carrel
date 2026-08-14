@@ -42,6 +42,9 @@ class StoredPhoto(BaseModel):
     media_type: str
     filename: str
     stored_at: float
+    # Which account owns this. Records written before accounts existed have
+    # none, and are treated as belonging to nobody — see `_owned_by`.
+    namespace: str = ""
 
     @property
     def path(self) -> Path:
@@ -62,7 +65,17 @@ def _write_index(data: dict[str, dict]) -> None:
     _INDEX.write_text(json.dumps(data, indent=2))
 
 
-def save(raw: bytes, caption: str, media_type: str) -> StoredPhoto:
+def _owned_by(photo: StoredPhoto, namespace: str) -> bool:
+    """Fail closed.
+
+    A record with no namespace predates accounts and cannot be attributed to
+    anyone, so nobody may read it. The alternative — treating unowned photos as
+    public — is how a cache quietly becomes a leak.
+    """
+    return bool(photo.namespace) and photo.namespace == namespace
+
+
+def save(raw: bytes, caption: str, media_type: str, namespace: str) -> StoredPhoto:
     photo_id = uuid.uuid4().hex
     filename = f"{photo_id}{_EXTENSIONS.get(media_type, '.bin')}"
     settings.photo_dir.mkdir(parents=True, exist_ok=True)
@@ -74,6 +87,7 @@ def save(raw: bytes, caption: str, media_type: str) -> StoredPhoto:
         media_type=media_type,
         filename=filename,
         stored_at=time.time(),
+        namespace=namespace,
     )
     with _lock:
         index = _read_index()
@@ -82,14 +96,46 @@ def save(raw: bytes, caption: str, media_type: str) -> StoredPhoto:
     return photo
 
 
-def get(photo_id: str) -> StoredPhoto | None:
+def get(photo_id: str, namespace: str) -> StoredPhoto | None:
+    """Look up a photo, but only within the caller's own account."""
     with _lock:
         entry = _read_index().get(photo_id)
-    return StoredPhoto(**entry) if entry else None
+    if not entry:
+        return None
+    photo = StoredPhoto(**entry)
+    return photo if _owned_by(photo, namespace) else None
 
 
-def list_all() -> list[StoredPhoto]:
+def list_for(namespace: str) -> list[StoredPhoto]:
     with _lock:
         index = _read_index()
-    photos = [StoredPhoto(**entry) for entry in index.values()]
-    return sorted(photos, key=lambda p: p.stored_at, reverse=True)
+    photos = [StoredPhoto(**e) for e in index.values()]
+    return sorted(
+        (p for p in photos if _owned_by(p, namespace)),
+        key=lambda p: p.stored_at,
+        reverse=True,
+    )
+
+
+def delete_for(namespace: str) -> int:
+    """Remove every photo belonging to one account, files included.
+
+    Used by account erasure. Deleting the index row without the file would leave
+    the bytes on disk after someone asked for them to be gone.
+    """
+    removed = 0
+    with _lock:
+        index = _read_index()
+        keep: dict[str, dict] = {}
+        for photo_id, entry in index.items():
+            photo = StoredPhoto(**entry)
+            if _owned_by(photo, namespace):
+                try:
+                    photo.path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                removed += 1
+            else:
+                keep[photo_id] = entry
+        _write_index(keep)
+    return removed

@@ -80,7 +80,7 @@ class Recorder:
 
 def token() -> str:
     """A token unlikely to collide with anything already in the namespace."""
-    return f"CARREL{int(time.time())}"
+    return f"Carrel{int(time.time())}"
 
 
 def run(main) -> int:

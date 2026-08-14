@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
-from app import quota, reeve_gateway
+from app import auth, quota, reeve_gateway
 from app.config import settings
 from app.models import ResetIn
 from app.pending import PendingWrite, registry
@@ -66,7 +66,7 @@ def pending() -> list[PendingWrite]:
 
 
 @router.post("/api/pending/{item_id}/verify")
-def verify(item_id: str) -> dict:
+def verify(item_id: str, user: dict = Depends(auth.current_user)) -> dict:
     """Check whether one write is really searchable yet. Costs one query.
 
     The UI prints that cost on the button. This is the only call that can move a
@@ -76,7 +76,7 @@ def verify(item_id: str) -> dict:
     if item is None:
         raise HTTPException(status_code=404, detail="No such pending write.")
 
-    raw = reeve_gateway.context(item.preview)
+    raw = reeve_gateway.context(item.preview, user["namespace"])
     quota.spend("verify")
 
     # Found and outside the not-yet-indexed block means genuinely searchable.
@@ -93,11 +93,11 @@ def verify(item_id: str) -> dict:
 
 
 @router.post("/api/admin/reset")
-def reset(payload: ResetIn) -> dict:
+def reset(payload: ResetIn, user: dict = Depends(auth.current_user)) -> dict:
     """Wipe the namespace. Irreversible, and broader than it sounds — it also
     cancels queued writes and deletes retained photos."""
     try:
-        return reeve_gateway.reset(payload.confirm)
+        return reeve_gateway.reset(user["namespace"], payload.confirm)
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:

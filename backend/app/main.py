@@ -14,10 +14,10 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.errors import reeve_error_handler
-from app.routes import ask, capture, photos, status
+from app.routes import account, ask, auth, capture, chats, photos, status
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-log = logging.getLogger("carrel")
+log = logging.getLogger("Carrel")
 
 
 @asynccontextmanager
@@ -65,6 +65,9 @@ app.add_middleware(
 # here, not bugs, and they need to read differently in the UI.
 app.add_exception_handler(Exception, reeve_error_handler)
 
+app.include_router(auth.router)
+app.include_router(account.router)
+app.include_router(chats.router)
 app.include_router(status.router)
 app.include_router(capture.router)
 app.include_router(ask.router)

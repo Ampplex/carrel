@@ -22,3 +22,8 @@ dist/
 
 # typescript incremental build cache
 *.tsbuildinfo
+
+# expo
+mobile/.expo/
+mobile/dist/
+.expo/

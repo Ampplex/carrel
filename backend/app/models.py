@@ -48,6 +48,21 @@ class PhotoAskIn(BaseModel):
     photo_id: str
 
 
+class PhotoBase64In(BaseModel):
+    """A photo sent as JSON rather than multipart — see routes/capture.py for
+    why React Native cannot use the multipart route."""
+
+    caption: str = ""
+    image_base64: str = Field(min_length=1)
+    media_type: str = Field(min_length=1)
+
+
+class PhotoBase64AskIn(BaseModel):
+    question: str = Field(min_length=1)
+    image_base64: str = Field(min_length=1)
+    media_type: str = Field(min_length=1)
+
+
 class ResetIn(BaseModel):
     confirm: str
 

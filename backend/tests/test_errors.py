@@ -60,3 +60,21 @@ def test_unknown_errors_still_classify():
     error = classify(RuntimeError("something nobody predicted"))
     assert error.status == 502
     assert error.code == "reeve_error"
+
+
+def test_reeve_rejecting_an_oversized_photo_is_not_a_generic_failure():
+    """A 413 from Reeve's HTTP layer used to fall through to "Reeve returned an
+    error", which told the user nothing and hid a fixable cause: base64 inflates
+    bytes by a third, so a photo inside our 4 MB limit can still be too large on
+    the wire."""
+    exc = requests_http_error_like(
+        "413 Client Error: Request Entity Too Large for url: "
+        "https://mcp.reeve.co.in/messages/?session_id=abc"
+    )
+    error = classify(exc)
+    assert error.code == "image_too_large_for_reeve"
+    assert error.status == 413
+
+
+def requests_http_error_like(message: str) -> Exception:
+    return RuntimeError(message)

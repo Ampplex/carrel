@@ -21,13 +21,13 @@ from __future__ import annotations
 import base64
 import time
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from starlette.concurrency import run_in_threadpool
 
-from app import photo_store, quota, reeve_gateway
+from app import auth, photo_store, quota, reeve_gateway
 from app.config import settings
-from app.models import PhotoAnswer, PhotoAskIn, PhotoOut, SearchIn
+from app.models import PhotoAnswer, PhotoAskIn, PhotoBase64AskIn, PhotoOut, SearchIn
 
 router = APIRouter()
 
@@ -37,7 +37,7 @@ IMAGE_LANE_MIN_SAMPLE = 3
 
 
 @router.get("/api/photos", response_model=list[PhotoOut])
-def list_photos() -> list[PhotoOut]:
+def list_photos(user: dict = Depends(auth.current_user)) -> list[PhotoOut]:
     return [
         PhotoOut(
             photo_id=p.photo_id,
@@ -45,28 +45,28 @@ def list_photos() -> list[PhotoOut]:
             thumb_url=f"/api/photos/{p.photo_id}/raw",
             stored_at=p.stored_at,
         )
-        for p in photo_store.list_all()
+        for p in photo_store.list_for(user["namespace"])
     ]
 
 
 @router.get("/api/photos/{photo_id}/raw")
-def photo_raw(photo_id: str) -> FileResponse:
-    photo = photo_store.get(photo_id)
+def photo_raw(photo_id: str, user: dict = Depends(auth.current_user)) -> FileResponse:
+    photo = photo_store.get(photo_id, user["namespace"])
     if photo is None or not photo.path.exists():
         raise HTTPException(status_code=404, detail="Photo not found.")
     return FileResponse(photo.path, media_type=photo.media_type)
 
 
 @router.post("/api/photos/ask", response_model=PhotoAnswer)
-def ask_about_photo(payload: PhotoAskIn) -> PhotoAnswer:
+def ask_about_photo(payload: PhotoAskIn, user: dict = Depends(auth.current_user)) -> PhotoAnswer:
     """Ask a question about one stored photo, with the image attached."""
-    photo = photo_store.get(payload.photo_id)
+    photo = photo_store.get(payload.photo_id, user["namespace"])
     if photo is None or not photo.path.exists():
         raise HTTPException(status_code=404, detail="Photo not found.")
 
     started = time.monotonic()
     encoded = base64.b64encode(photo.path.read_bytes()).decode("ascii")
-    answer = reeve_gateway.ask_with_photo(payload.question, encoded, photo.media_type)
+    answer = reeve_gateway.ask_with_photo(payload.question, encoded, photo.media_type, user["namespace"])
     quota.spend("photo_ask_attached")
 
     return PhotoAnswer(
@@ -80,11 +80,11 @@ def ask_about_photo(payload: PhotoAskIn) -> PhotoAnswer:
 
 
 @router.post("/api/photos/ask-unattached", response_model=PhotoAnswer)
-def ask_without_attaching(payload: SearchIn) -> PhotoAnswer:
+def ask_without_attaching(payload: SearchIn, user: dict = Depends(auth.current_user)) -> PhotoAnswer:
     """Same question, no image attached — does the retrieval lane find it alone?"""
     started = time.monotonic()
-    stored = len(photo_store.list_all())
-    answer = reeve_gateway.ask(payload.query)
+    stored = len(photo_store.list_for(user["namespace"]))
+    answer = reeve_gateway.ask(payload.query, user["namespace"])
     quota.spend("photo_ask_lane")
 
     if stored < IMAGE_LANE_MIN_SAMPLE:
@@ -108,15 +108,15 @@ def ask_without_attaching(payload: SearchIn) -> PhotoAnswer:
 
 
 @router.post("/api/photos/search")
-def search_photos(payload: SearchIn) -> dict:
+def search_photos(payload: SearchIn, user: dict = Depends(auth.current_user)) -> dict:
     """Find a photo by what it looks like, not by what its caption says."""
-    raw = reeve_gateway.search_photos(payload.query)
+    raw = reeve_gateway.search_photos(payload.query, user["namespace"])
     quota.spend("photo_search")
     return {"raw": raw, "found": "No matching photo memories" not in raw, "queries_used": 1}
 
 
 @router.post("/api/photos/search-by-image")
-async def search_by_image(file: UploadFile = File(...)) -> dict:
+async def search_by_image(file: UploadFile = File(...), user: dict = Depends(auth.current_user)) -> dict:
     """Image-to-image: find the stored photo that looks like this one."""
     media_type = (file.content_type or "").lower()
     if media_type not in settings.allowed_media_types:
@@ -127,7 +127,7 @@ async def search_by_image(file: UploadFile = File(...)) -> dict:
         raise HTTPException(status_code=413, detail="Image too large.")
 
     encoded = base64.b64encode(raw_bytes).decode("ascii")
-    raw = await run_in_threadpool(reeve_gateway.search_photos_by_image, encoded, media_type)
+    raw = await run_in_threadpool(reeve_gateway.search_photos_by_image, encoded, media_type, user["namespace"])
     quota.spend("photo_search_by_image")
     return {"raw": raw, "found": "No matching photo memories" not in raw, "queries_used": 1}
 
@@ -136,6 +136,7 @@ async def search_by_image(file: UploadFile = File(...)) -> dict:
 async def upload_and_ask(
     file: UploadFile = File(...),
     question: str = Form(...),
+    user: dict = Depends(auth.current_user),
 ) -> PhotoAnswer:
     """Ask about a photo that was never stored — useful for 'is this the same
     whiteboard as the one from Tuesday?'"""
@@ -150,7 +151,7 @@ async def upload_and_ask(
     started = time.monotonic()
     encoded = base64.b64encode(raw_bytes).decode("ascii")
     answer = await run_in_threadpool(
-        reeve_gateway.ask_with_photo, question, encoded, media_type
+        reeve_gateway.ask_with_photo, question, encoded, media_type, user["namespace"]
     )
     quota.spend("photo_ask_attached")
 
@@ -158,6 +159,48 @@ async def upload_and_ask(
         answer=answer,
         mode="attached",
         note="Asked against an image that was not stored as a memory.",
+        queries_used=1,
+        took_ms=int((time.monotonic() - started) * 1000),
+    )
+
+
+@router.post("/api/photos/ask-base64", response_model=PhotoAnswer)
+async def ask_with_base64_photo(
+    payload: PhotoBase64AskIn,
+    user: dict = Depends(auth.current_user),
+) -> PhotoAnswer:
+    """Ask about a photo sent as JSON rather than multipart.
+
+    The base64 twin of upload-and-ask, for React Native — see
+    routes/capture.py for why its FormData cannot be used.
+    """
+    import binascii
+
+    try:
+        raw = base64.b64decode(payload.image_base64, validate=True)
+    except (ValueError, binascii.Error) as exc:
+        raise HTTPException(status_code=400, detail="Image data is not valid base64.") from exc
+
+    media_type = payload.media_type.lower()
+    if media_type not in settings.allowed_media_types:
+        raise HTTPException(status_code=415, detail=f"Unsupported image type '{media_type}'.")
+    if len(raw) > settings.max_image_bytes:
+        raise HTTPException(status_code=413, detail="Image too large.")
+
+    started = time.monotonic()
+    answer = await run_in_threadpool(
+        reeve_gateway.ask_with_photo,
+        payload.question,
+        payload.image_base64,
+        media_type,
+        user["namespace"],
+    )
+    quota.spend("photo_ask_attached")
+
+    return PhotoAnswer(
+        answer=answer,
+        mode="attached",
+        note="The image was sent with the question, so the vision model read it directly.",
         queries_used=1,
         took_ms=int((time.monotonic() - started) * 1000),
     )

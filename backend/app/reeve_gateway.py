@@ -1,18 +1,22 @@
 """The only module in this project that imports `reeve`.
 
-Everything the app knows about Reeve lives behind these functions. Two reasons
-that boundary is worth enforcing:
+Every function takes an explicit `namespace`, and that is the whole security
+model. The hosted server composes identity as `uid:namespace`: the `uid` comes
+from the API key and cannot be forged, but the namespace half is whatever the
+caller passes. So the namespace is a partition, not a boundary — which means the
+boundary has to be enforced here, by only ever passing a namespace that came
+from `auth.current_user` and never from a request body.
 
-  1. **The namespace is owned here.** The hosted server composes the real
-     identity as `uid:namespace`, where `uid` comes from the API key and cannot
-     be forged by a client. The namespace half, however, is whatever the caller
-     passes — so if an HTTP handler could supply it, any browser could read any
-     other namespace in this account. It is a partition, not a security
-     boundary. No function here accepts a speaker argument.
+There is deliberately no default value on any namespace parameter. A default is
+exactly the kind of convenience that later turns into "this one endpoint forgot
+to pass it and quietly read someone else's memory".
 
-  2. **Two calls reach past the public SDK surface** (see `_call_tool` below).
-     Keeping them in one file means a future SDK rename breaks exactly one
-     module instead of being scattered through the routes.
+Two calls also reach past the published SDK surface: `query_memory` and
+`search_image_memories` accept `image_path`/`image_url` but not `image_base64`,
+while the MCP tools underneath accept all three. A web backend holds uploaded
+bytes in memory, so the published signature would force a temp file just to have
+the SDK read it back. Both uses are confined to this file, which is why `reeve`
+is pinned `>=0.1.41,<0.2`.
 """
 
 from __future__ import annotations
@@ -33,16 +37,7 @@ from reeve.tools import (  # noqa: E402
     store_memory,
 )
 
-NAMESPACE = settings.namespace
 
-
-# ── Escape hatch ──────────────────────────────────────────────────────────────
-# The SDK's `query_memory`, `retrieve_memory_context` and `search_image_memories`
-# accept `image_path` and `image_url` but NOT `image_base64` — while the MCP tool
-# underneath accepts all three. A web backend holds uploaded bytes in memory, so
-# the published signature would force us to write a temp file just to have the
-# SDK base64 it straight back. Calling the tool directly avoids that round trip.
-# This is a private name; `reeve` is pinned to >=0.1.41,<0.2 because of it.
 def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
     return _get_client().call_tool(name, arguments)
 
@@ -50,12 +45,12 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
 # ── Writes (free — they do not count against the query quota) ────────────────
 
 
-def store_note(text: str) -> dict[str, Any]:
+def store_note(text: str, namespace: str) -> dict[str, Any]:
     """Store a text memory. Returns immediately with a pending pointer."""
-    return store_memory(text, speaker=NAMESPACE)
+    return store_memory(text, speaker=namespace)
 
 
-def store_photo(caption: str, image_base64: str, media_type: str) -> dict[str, Any]:
+def store_photo(caption: str, image_base64: str, media_type: str, namespace: str) -> dict[str, Any]:
     """Store a photo and its caption as ONE memory.
 
     Reeve fuses the caption with a vision-model description of the image, embeds
@@ -64,7 +59,7 @@ def store_photo(caption: str, image_base64: str, media_type: str) -> dict[str, A
     """
     return store_memory(
         caption,
-        speaker=NAMESPACE,
+        speaker=namespace,
         image_base64=image_base64,
         image_media_type=media_type,
     )
@@ -73,50 +68,46 @@ def store_photo(caption: str, image_base64: str, media_type: str) -> dict[str, A
 # ── Reads (each of these costs one query against the monthly quota) ──────────
 
 
-def ask(question: str) -> str:
+def ask(question: str, namespace: str) -> str:
     """Narrated answer."""
-    return query_memory(question, speaker=NAMESPACE)
+    return query_memory(question, speaker=namespace)
 
 
-def context(question: str) -> str:
+def context(question: str, namespace: str) -> str:
     """Raw ranked context — the layer that owns retrieval truth.
 
-    This is where `(superseded)` markers and the pending-write block live, so it
-    is the evidence the UI shows when a claim needs proving.
+    Where the `(superseded)` markers and the pending-write block live, so it is
+    the evidence the UI shows when a claim needs proving.
     """
-    return retrieve_memory_context(question, speaker=NAMESPACE)
+    return retrieve_memory_context(question, speaker=namespace)
 
 
-def ask_with_photo(question: str, image_base64: str, media_type: str) -> str:
-    """Ask a question with a photo attached.
-
-    Attaching the image makes the vision path deterministic: the server routes
-    to the vision model directly rather than waiting for the image retrieval
-    lane to select the photo on its own.
-    """
+def ask_with_photo(question: str, image_base64: str, media_type: str, namespace: str) -> str:
+    """Ask with a photo attached — reaches the vision model deterministically
+    rather than waiting for the image lane to select the photo on its own."""
     return _call_tool(
         "query_memory",
         {
             "question": question,
-            "speaker": NAMESPACE,
+            "speaker": namespace,
             "image_base64": image_base64,
             "image_media_type": media_type,
         },
     )
 
 
-def search_photos(query: str) -> str:
+def search_photos(query: str, namespace: str) -> str:
     """Text-to-image search. Bypasses the image lane's admission gate."""
-    return search_image_memories(query=query, speaker=NAMESPACE)
+    return search_image_memories(query=query, speaker=namespace)
 
 
-def search_photos_by_image(image_base64: str, media_type: str) -> str:
-    """Image-to-image search: find the stored photo that looks like this one."""
+def search_photos_by_image(image_base64: str, media_type: str, namespace: str) -> str:
+    """Image-to-image: find the stored photo that looks like this one."""
     return _call_tool(
         "search_image_memories",
         {
             "query": "",
-            "speaker": NAMESPACE,
+            "speaker": namespace,
             "image_base64": image_base64,
             "image_media_type": media_type,
         },
@@ -127,13 +118,7 @@ def search_photos_by_image(image_base64: str, media_type: str) -> str:
 
 
 def config() -> dict[str, Any]:
-    """Live capability report. Drives the UI's capability badges.
-
-    Worth calling on every page load: photo retention and vision are operator
-    controlled, so a capability can disappear underneath a running demo. The
-    failure mode without this is silent — answers quietly stop being grounded in
-    the image and nothing errors.
-    """
+    """Live capability report — account-wide, so it takes no namespace."""
     return memory_config()
 
 
@@ -142,20 +127,36 @@ def warm() -> dict[str, Any]:
 
     `_ensure_connected` guards on a plain boolean with no lock, so two
     simultaneous cold requests can each spawn a listener thread. Connecting once
-    in the app's lifespan, before any traffic, sidesteps that and also keeps the
-    handshake latency out of the first answer.
+    in the app's lifespan sidesteps that and keeps the handshake latency out of
+    the first answer.
     """
     return memory_config()
 
 
-def reset(confirm: str) -> dict[str, Any]:
-    """Wipe this namespace. Irreversible.
+def erase(namespace: str) -> dict[str, Any]:
+    """Delete one account's memories.
+
+    Deliberately not behind CARREL_ALLOW_RESET. That flag guards the operator's
+    blunt reset tool; this is a person deleting their own data, which the
+    product owes them and must not depend on a server setting being switched on.
+    Authorisation is the token — the namespace comes from the session and can
+    never be supplied by a client.
+
+    Broader than it sounds: this also cancels the account's queued writes and
+    sweeps the photos Reeve retained, so nothing lands after the erase and
+    resurrects what was just removed.
+    """
+    return _call_tool("clear_memory", {"speaker": namespace, "dry_run": False})
+
+
+def reset(namespace: str, confirm: str) -> dict[str, Any]:
+    """Wipe one account's memory. Irreversible.
 
     Deliberately awkward to reach: `reeve.tools` exposes no `clear_memory`, and
     this also cancels queued writes and sweeps retained photos.
     """
     if not settings.allow_reset:
-        raise PermissionError("Reset is disabled. Set CARREL_ALLOW_RESET=true to enable it.")
-    if confirm != f"DELETE {NAMESPACE}":
-        raise ValueError(f"Confirmation must be exactly: DELETE {NAMESPACE}")
-    return _call_tool("clear_memory", {"speaker": NAMESPACE, "dry_run": False})
+        raise PermissionError("Reset is disabled. Set Carrel_ALLOW_RESET=true to enable it.")
+    if confirm != "DELETE MY MEMORY":
+        raise ValueError("Confirmation must be exactly: DELETE MY MEMORY")
+    return _call_tool("clear_memory", {"speaker": namespace, "dry_run": False})
