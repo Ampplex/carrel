@@ -286,6 +286,15 @@ export const api = {
     await setToken(s.token);
     return s;
   },
+  /** Exchange a Google ID token for a Carrel session. The server verifies it. */
+  signInWithGoogle: async (idToken: string): Promise<Session> => {
+    const s = await request<Session>(
+      "/api/auth/google",
+      json({ id_token: idToken, terms_version: LEGAL_VERSION })
+    );
+    await setToken(s.token);
+    return s;
+  },
   login: async (email: string, password: string): Promise<Session> => {
     const s = await request<Session>("/api/auth/login", json({ email, password }));
     await setToken(s.token);

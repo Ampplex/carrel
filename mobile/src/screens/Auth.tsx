@@ -27,6 +27,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError, Session, api } from "../api";
+import { GoogleButton } from "../components/GoogleButton";
+import { googleConfigured } from "../googleAuth";
 import { theme as t } from "../theme";
 import { Legal, LegalTab } from "./Legal";
 
@@ -52,6 +54,21 @@ export function Auth({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
         ? await api.register(email.trim(), password, name.trim())
         : await api.login(email.trim(), password);
       onSignedIn(session);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Google returns an identity token; the server decides what it is worth.
+  // Nothing here inspects it, because a client that reads its own token learns
+  // nothing it can safely act on.
+  const signInWithGoogle = async (idToken: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      onSignedIn(await api.signInWithGoogle(idToken));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
@@ -127,6 +144,22 @@ export function Auth({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
             <Text style={s.ctaText}>{signingUp ? "Create account" : "Sign in"}</Text>
           )}
         </Pressable>
+
+        {googleConfigured() && (
+          <>
+            <View style={s.dividerRow}>
+              <View style={s.divider} />
+              <Text style={s.dividerText}>or</Text>
+              <View style={s.divider} />
+            </View>
+
+            <GoogleButton
+              disabled={busy}
+              onIdToken={signInWithGoogle}
+              onError={(message) => setError(message)}
+            />
+          </>
+        )}
 
         {/* Under the button, where it is read as a condition of pressing it,
             rather than in a footer nobody scrolls to. Only on sign-up: asking
@@ -361,6 +394,16 @@ const s = StyleSheet.create({
   },
   ctaOff: { opacity: 0.35 },
   ctaText: { color: t.color.accentInk, fontSize: 16, fontWeight: "700" },
+
+  dividerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginTop: t.space(5),
+    marginBottom: t.space(4),
+  },
+  divider: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: t.color.border },
+  dividerText: { color: t.color.inkTertiary, ...t.text.small },
 
   consent: {
     color: t.color.inkTertiary,

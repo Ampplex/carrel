@@ -115,9 +115,37 @@ cosmetic:
 The upper bound is there because two calls in `reeve_gateway.py` reach past the
 published SDK surface — see the comments there for why.
 
-Note that installing `reeve` also pulls in `neo4j`, `langchain`, `razorpay` and
-`google-auth`: the published wheel declares the union of the client's and the
-server's dependencies. Nothing here uses them. Use a virtualenv.
+Note that installing `reeve` also pulls in `neo4j`, `langchain` and `razorpay`:
+the published wheel declares the union of the client's and the server's
+dependencies. Nothing here uses those. Use a virtualenv.
+
+`google-auth` arrives the same way, but this project genuinely uses it and so
+declares it directly — relying on a transitive dependency is relying on someone
+else not to drop it.
+
+### Sign in with Google
+
+Off unless configured, and it cannot run in Expo Go: Google refuses the `exp://`
+redirect URIs Expo Go issues, and the proxy that used to bridge that was removed
+in SDK 48. It needs a development build.
+
+1. In the Google Cloud console, create OAuth clients for **iOS** (bundle id
+   `com.ampplex.carrel`), **Android** (same package plus your signing SHA-1),
+   and **Web**.
+2. Put them in `mobile/src/googleAuth.ts`. They are public identifiers that ship
+   inside the app, not secrets.
+3. List the same ids in `backend/.env` as `GOOGLE_CLIENT_IDS`, comma separated.
+   Both sides need them: the app to request a token, the server to decide whose
+   tokens it will accept.
+4. `npx expo run:ios` (or `eas build --profile development`).
+
+The server takes a **list** because Google issues one client id per platform and
+the ID token names whichever the running build used. It accepts ID tokens only,
+never access tokens — `backend/app/google_auth.py` explains why that distinction
+is the whole security argument rather than a detail.
+
+Leave `GOOGLE_CLIENT_IDS` empty and the endpoint answers 503 saying so, which is
+a different thing from a bad token and reads differently in the app.
 
 ---
 

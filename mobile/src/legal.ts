@@ -45,7 +45,7 @@ export const TERMS: LegalDoc = {
     {
       heading: "2. Your account",
       body:
-        "You are responsible for the email and password you choose and for anything done with them. Two limits are worth knowing before you sign up: there is no password reset, and email addresses are not verified. If you forget your password, the account cannot be recovered — you would start again with a new one. A sign-in lasts thirty days on a device before it has to be repeated.",
+        "You are responsible for the email and password you choose and for anything done with them. Two limits are worth knowing before you sign up: there is no password reset, and email addresses you type in are not verified. If you forget your password, the account cannot be recovered — you would start again with a new one. Signing in with Google avoids both problems, since Google holds the password and has already verified the address. A sign-in lasts thirty days on a device before it has to be repeated.",
     },
     {
       heading: "3. What you should put in it",
@@ -96,6 +96,11 @@ export const PRIVACY: LegalDoc = {
       heading: "What is collected",
       body:
         "Your email address, a name if you supply one, and your password stored only as a scrypt hash — the password itself is never written down. Then the material you deliberately provide: the messages you type, the photographs you attach, and the times each was recorded.",
+    },
+    {
+      heading: "If you sign in with Google",
+      body:
+        "Google tells Carrel three things: your email address, the name on the account, and the account's identifier. Nothing else — no contacts, no calendar, no Drive, no profile beyond that. Carrel never sees your Google password and cannot act on your Google account. Signing in with Google on an address that already has a Carrel password reaches the same memory rather than a second empty one, because your data is keyed to the address either way. What Google records about the sign-in itself is governed by Google's own privacy policy.",
     },
     {
       heading: "What is not collected",

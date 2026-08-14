@@ -3,6 +3,7 @@
     "name": "Carrel",
     "slug": "Carrel",
     "version": "1.0.0",
+    "scheme": "carrel",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -11,7 +12,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Carrel uses the camera so you can photograph a whiteboard, a slide or a page and ask about it later.",
         "NSPhotoLibraryUsageDescription": "Carrel reads photos you choose so it can remember them and answer questions about them later."
-      }
+      },
+      "bundleIdentifier": "com.ampplex.carrel"
     },
     "android": {
       "adaptiveIcon": {
@@ -21,7 +23,8 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "softwareKeyboardLayoutMode": "resize"
+      "softwareKeyboardLayoutMode": "resize",
+      "package": "com.ampplex.carrel"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -34,7 +37,8 @@
           "photosPermission": "Carrel reads photos you choose so it can remember them and answer questions about them later.",
           "cameraPermission": "Carrel uses the camera so you can photograph a whiteboard, a slide or a page and ask about it later."
         }
-      ]
+      ],
+      "expo-web-browser"
     ]
   }
 }

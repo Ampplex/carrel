@@ -11,7 +11,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from app import auth
+from app import auth, google_auth
 
 router = APIRouter()
 
@@ -49,6 +49,35 @@ def login(payload: Credentials) -> Session:
     except ValueError as exc:
         # 401 rather than 400: the credentials were well-formed and rejected.
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+    return Session(token=result["token"], email=result["email"], name=result["name"])
+
+
+class GoogleIn(BaseModel):
+    # An ID token, not an access token. app/google_auth.py explains why the
+    # difference is the entire security argument rather than a detail.
+    id_token: str = Field(min_length=1, max_length=8192)
+    terms_version: str = Field(default="", max_length=40)
+
+
+@router.post("/api/auth/google", response_model=Session)
+def google_sign_in(payload: GoogleIn) -> Session:
+    """Exchange a verified Google ID token for a Carrel session."""
+    try:
+        identity = google_auth.verify(payload.id_token)
+    except google_auth.GoogleNotConfigured as exc:
+        # 503, not 401: nothing is wrong with the token or the person holding
+        # it — the server simply has not been given any client IDs to check it
+        # against, and the app should say so rather than "sign-in failed".
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except google_auth.GoogleAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+    try:
+        result = auth.sign_in_with_google(
+            identity.email, identity.name, identity.subject, payload.terms_version
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return Session(token=result["token"], email=result["email"], name=result["name"])
 
 

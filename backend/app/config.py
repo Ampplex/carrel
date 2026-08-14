@@ -30,7 +30,12 @@ def _flag(name: str, default: bool = False) -> bool:
 
 @dataclass(frozen=True)
 class Settings:
-    api_key: str = field(default_factory=lambda: os.environ.get("REEVE_API_KEY", "").strip())
+    # repr=False, because a frozen dataclass prints every field in any traceback
+    # that mentions it — which is how the Reeve API key ended up in a pytest
+    # failure. A secret that leaks into logs is a leaked secret.
+    api_key: str = field(
+        default_factory=lambda: os.environ.get("REEVE_API_KEY", "").strip(), repr=False
+    )
     namespace: str = field(
         default_factory=lambda: os.environ.get("CARREL_NAMESPACE", "carrel-demo").strip()
     )
@@ -43,6 +48,20 @@ class Settings:
     )
     allow_reset: bool = field(default_factory=lambda: _flag("CARREL_ALLOW_RESET"))
     demo_replay: bool = field(default_factory=lambda: _flag("CARREL_DEMO_REPLAY"))
+
+    # Every OAuth client allowed to mint an ID token this server will accept.
+    # Plural because Google issues a separate client ID per platform, and the
+    # `aud` claim carries whichever one the app was built with — the iOS client
+    # on an iPhone, the Android client on a phone, the Web client in a browser.
+    # Accepting a token whose audience is not on this list is the whole of the
+    # security story here; see app/google_auth.py.
+    google_client_ids: tuple[str, ...] = field(
+        default_factory=lambda: tuple(
+            client_id.strip()
+            for client_id in os.environ.get("GOOGLE_CLIENT_IDS", "").split(",")
+            if client_id.strip()
+        )
+    )
 
     var_dir: Path = BACKEND_DIR / "var"
     photo_dir: Path = BACKEND_DIR / "var" / "photos"

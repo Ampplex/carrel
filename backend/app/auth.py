@@ -124,11 +124,69 @@ def login(email: str, password: str) -> dict:
         _hash(password or "", secrets.token_bytes(16))
         raise ValueError("Email or password is wrong.")
 
+    # An account created through Google has no password at all. Same message and
+    # same work as a missing account: saying "that one uses Google" would be
+    # friendlier, but it would also answer "does this person have an account
+    # here?" for anyone who asks, which is the thing this branch exists to
+    # refuse. The message stays true either way — there is no password, so no
+    # password can be right.
+    if not user.get("hash") or not user.get("salt"):
+        _hash(password or "", secrets.token_bytes(16))
+        raise ValueError("Email or password is wrong.")
+
     expected = user["hash"]
     actual = _hash(password or "", bytes.fromhex(user["salt"]))
     if not hmac.compare_digest(expected, actual):
         raise ValueError("Email or password is wrong.")
 
+    return _issue(email)
+
+
+def sign_in_with_google(
+    email: str, name: str = "", subject: str = "", terms_version: str = ""
+) -> dict:
+    """Find or create the account behind an already-verified Google identity.
+
+    The caller must have verified the token first — this function trusts the
+    email it is handed completely, because the namespace is derived from it.
+    See app/google_auth.py for what that verification has to include.
+
+    An address that already has a password account is *linked*, not rejected:
+    same email, same namespace, same memories, now reachable two ways. The
+    alternative — refusing — would mean telling the caller that an account
+    already exists, which leaks exactly what login() is careful not to.
+
+    The honest caveat: Carrel never verifies the email addresses used at
+    registration, so somebody could sign up with an address they do not own and
+    a later Google sign-in by the real owner would join that account rather than
+    a fresh one. Verifying addresses at registration is the fix, and it is
+    listed as missing rather than half-built.
+    """
+    email = (email or "").strip().lower()
+    if not _EMAIL_RE.match(email):
+        raise ValueError("That Google account has no usable email address.")
+
+    now = time.time()
+    with _lock:
+        users = _read(_USERS)
+        user = users.get(email)
+        if user is None:
+            users[email] = {
+                "name": (name or "").strip()[:60],
+                # No salt, no hash: there is no password to store. login()
+                # treats their absence as "cannot be signed into that way".
+                "namespace": _namespace_for(email),
+                "created_at": now,
+                "terms_version": (terms_version or "").strip()[:40],
+                "terms_accepted_at": now,
+                "google_sub": subject,
+            }
+        else:
+            user["google_sub"] = subject or user.get("google_sub", "")
+            # Only fills a gap; never overwrites a name the person chose here.
+            if name and not user.get("name"):
+                user["name"] = name.strip()[:60]
+        _write(_USERS, users)
     return _issue(email)
 
 

@@ -17,6 +17,10 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "python-multipart>=0.0.9",
     "pydantic>=2.7",
+    # Verifies Google ID tokens. Named explicitly even though reeve already
+    # pulls it in: a dependency you rely on but never declare is one that
+    # vanishes the day the package that happened to carry it drops it.
+    "google-auth>=2.30",
 ]
 
 [project.optional-dependencies]
