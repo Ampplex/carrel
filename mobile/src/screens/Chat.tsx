@@ -42,8 +42,8 @@ import {
   Session,
   StoredMessage,
   api,
-  imageSource,
 } from "../api";
+import { AuthImage } from "../components/AuthImage";
 import { ChatList } from "./ChatList";
 import { Settings } from "./Settings";
 import { theme as t } from "../theme";
@@ -427,7 +427,7 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
     return (
       <View style={[s.row, mine ? s.rowMine : s.rowTheirs]}>
         <View style={[s.bubble, mine ? s.bubbleMine : s.bubbleTheirs]}>
-          {item.image && <Image source={imageSource(item.image.uri)} style={s.image} />}
+          {item.image && <AuthImage uri={item.image.uri} style={s.image} />}
           {!!item.text && <Text style={s.bubbleText}>{item.text}</Text>}
           {!!item.meta && <Text style={s.meta}>{item.meta}</Text>}
 

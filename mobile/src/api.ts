@@ -58,6 +58,17 @@ export function imageSource(uri: string): { uri: string; headers?: Record<string
     : { uri };
 }
 
+/** Whether a URL points at this API and therefore needs the session token. */
+export function needsAuth(uri: string): boolean {
+  return uri.startsWith(API_BASE);
+}
+
+/** The Authorization header, for callers that fetch bytes themselves. */
+export async function authHeaders(): Promise<Record<string, string>> {
+  const t = await loadToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
 async function setToken(value: string | null): Promise<void> {
   token = value;
   try {
