@@ -1,5 +1,5 @@
 /**
- * "Continue with Google", and the reason it is its own component.
+ * "Continue with Google", and the reason it is split in two.
  *
  * `useIdTokenAuthRequest` throws while rendering if the client id for the
  * current platform is missing — a red screen, not a caught error. Hooks cannot
@@ -7,15 +7,31 @@
  * it: the hook ran anyway and took the whole screen down on iOS, where only a
  * Web client id was configured.
  *
- * Moving it here fixes that properly. The hook is unconditional *within this
- * component*, and the component is only mounted when `googleConfigured()` says
- * this platform has an id to use. Nothing is skipped; something is simply not
- * rendered.
+ * Hence the split. `Shell` is the button and knows nothing; `Live` adds the
+ * hook and is only ever mounted when this platform has an id for it to use.
+ * Nothing is skipped conditionally — one component is simply not rendered.
+ *
+ * The button itself is always visible, including before any client id exists.
+ * The first version hid it, which is defensible for a shipped app and useless
+ * here: an invisible button looks identical to a broken build, and the honest
+ * answer — "this needs an iOS client id and a development build" — is worth
+ * saying out loud rather than expressing as an absence.
  */
 
-import { Pressable, StyleSheet, Text, View } from "react-native";
-import { useGoogleSignIn } from "../googleAuth";
+import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { googleConfigured, useGoogleSignIn } from "../googleAuth";
 import { theme as t } from "../theme";
+
+/** What is missing, in the words of somebody who has to go and fix it. */
+function whatIsMissing(): string {
+  const platform = Platform.OS === "android" ? "an Android" : "an iOS";
+  return (
+    `Google sign-in needs ${platform} client ID. Create one in the Google Cloud ` +
+    "console, add it to mobile/src/googleAuth.ts and to GOOGLE_CLIENT_IDS in " +
+    "backend/.env, then run a development build — Expo Go cannot complete " +
+    "Google's redirect."
+  );
+}
 
 export function GoogleButton({
   disabled,
@@ -26,8 +42,26 @@ export function GoogleButton({
   onIdToken: (idToken: string) => void;
   onError: (message: string) => void;
 }) {
-  const google = useGoogleSignIn(onIdToken, onError);
+  if (!googleConfigured()) {
+    return <Shell disabled={disabled} onPress={() => onError(whatIsMissing())} />;
+  }
+  return <Live disabled={disabled} onIdToken={onIdToken} onError={onError} />;
+}
 
+function Live({
+  disabled,
+  onIdToken,
+  onError,
+}: {
+  disabled?: boolean;
+  onIdToken: (idToken: string) => void;
+  onError: (message: string) => void;
+}) {
+  const google = useGoogleSignIn(onIdToken, onError);
+  return <Shell disabled={disabled} onPress={google.start} />;
+}
+
+function Shell({ disabled, onPress }: { disabled?: boolean; onPress: () => void }) {
   return (
     // A white button with a "G", not Google's four-colour mark. The app carries
     // no image assets and no SVG renderer, and Google's branding guidelines are
@@ -36,7 +70,7 @@ export function GoogleButton({
     // goes anywhere near a store.
     <Pressable
       style={[s.button, disabled && s.off]}
-      onPress={google.start}
+      onPress={onPress}
       disabled={disabled}
       accessibilityRole="button"
       accessibilityLabel="Continue with Google"

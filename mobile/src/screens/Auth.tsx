@@ -28,7 +28,6 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { ApiError, Session, api } from "../api";
 import { GoogleButton } from "../components/GoogleButton";
-import { googleConfigured } from "../googleAuth";
 import { theme as t } from "../theme";
 import { Legal, LegalTab } from "./Legal";
 
@@ -145,21 +144,17 @@ export function Auth({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
           )}
         </Pressable>
 
-        {googleConfigured() && (
-          <>
-            <View style={s.dividerRow}>
-              <View style={s.divider} />
-              <Text style={s.dividerText}>or</Text>
-              <View style={s.divider} />
-            </View>
+        <View style={s.dividerRow}>
+          <View style={s.divider} />
+          <Text style={s.dividerText}>or</Text>
+          <View style={s.divider} />
+        </View>
 
-            <GoogleButton
-              disabled={busy}
-              onIdToken={signInWithGoogle}
-              onError={(message) => setError(message)}
-            />
-          </>
-        )}
+        <GoogleButton
+          disabled={busy}
+          onIdToken={signInWithGoogle}
+          onError={(message) => setError(message)}
+        />
 
         {/* Under the button, where it is read as a condition of pressing it,
             rather than in a footer nobody scrolls to. Only on sign-up: asking
