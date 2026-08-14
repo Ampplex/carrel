@@ -39,6 +39,25 @@ export async function loadToken(): Promise<string | null> {
   return token;
 }
 
+/**
+ * An <Image> source for a photo that may live behind the API's auth.
+ *
+ * Photos are served from /api/photos/{id}/raw, which requires the session token
+ * — it has to, or anyone could read anyone's photographs by guessing ids. But
+ * <Image source={{uri}}> sends no Authorization header, so every photo restored
+ * from a transcript came back 401 and rendered as an empty grey box. Freshly
+ * picked ones looked fine, because those still point at a local file:// path,
+ * which is why this only ever showed up after a reload.
+ *
+ * Local URIs are passed through untouched: attaching a bearer token to a
+ * file:// read would be pointless, and to a third-party URL would be a leak.
+ */
+export function imageSource(uri: string): { uri: string; headers?: Record<string, string> } {
+  return uri.startsWith(API_BASE) && token
+    ? { uri, headers: { Authorization: `Bearer ${token}` } }
+    : { uri };
+}
+
 async function setToken(value: string | null): Promise<void> {
   token = value;
   try {
@@ -275,6 +294,10 @@ export const api = {
   logout: async (): Promise<void> => {
     try {
       await request("/api/auth/logout", { method: "POST" });
+    } catch {
+      // Already expired, revoked, or the server is unreachable. None of those
+      // are reasons to stay signed in on this device — and without the catch,
+      // a 401 here would throw past the caller and leave it on the chat screen.
     } finally {
       await setToken(null);
     }

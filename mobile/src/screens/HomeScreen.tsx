@@ -1,5 +1,5 @@
 import { useNavigation, useRoute } from "@react-navigation/native";
-import type { Session } from "../api";
+import { Session, api } from "../api";
 import { Chat } from "./Chat";
 import { LoginScreen } from "./LoginScreen";
 
@@ -23,7 +23,22 @@ export function HomeScreen() {
   return (
     <Chat
       session={session}
-      onSignOut={() => navigation.reset({ index: 0, routes: [{ name: "Login" }] })}
+      /**
+       * Sign out has to end the session, not just leave the screen.
+       *
+       * This used to navigate and nothing else. The token stayed in the
+       * keychain and stayed valid on the server, so the next launch found it,
+       * validated it, and went straight back into the chat — signing out
+       * appeared to work and then undid itself. Worse, anyone who picked up the
+       * phone afterwards had a working session sitting in the keychain.
+       *
+       * api.logout revokes it server-side and clears the keychain, and never
+       * throws: leaving is not something that can fail.
+       */
+      onSignOut={async () => {
+        await api.logout();
+        navigation.reset({ index: 0, routes: [{ name: "Login" }] });
+      }}
     />
   );
 }
