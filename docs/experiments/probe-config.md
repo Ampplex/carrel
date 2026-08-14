@@ -2,7 +2,7 @@
 
 Run: `2026-08-13T18:05:49+00:00`
 
-SDK version: `0.1.41` · namespace `carrel-probe`
+SDK version: `0.1.41` · namespace `Carrel-probe`
 
 | Setting | Value |
 |---|---|

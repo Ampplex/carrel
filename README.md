@@ -1,6 +1,6 @@
 # Carrel
 
-*A carrel is the private desk in a library where a student keeps their work.*
+*A Carrel is the private desk in a library where a student keeps their work.*
 
 Coursework you can ask questions of. Capture lectures, decisions, deadlines,
 whiteboard photographs and who is doing what; ask about them later in plain

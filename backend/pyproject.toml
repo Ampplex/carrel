@@ -1,5 +1,5 @@
 [project]
-name = "carrel-backend"
+name = "Carrel-backend"
 version = "0.1.0"
 description = "Coursework memory built on the Reeve SDK"
 requires-python = ">=3.10"

@@ -40,7 +40,7 @@ non-deterministic result is itself a finding worth reporting.
 Script: `backend/scripts/probe_readafterwrite.py`
 Raw: `docs/experiments/probe-readafterwrite.md`
 
-Run 2026-08-13, namespace `carrel-probe`. `store_memory` returned
+Run 2026-08-13, namespace `Carrel-probe`. `store_memory` returned
 `{'pending_id': 'tmp_a9075e8e65', 'stored': False, 'persisting': True}`.
 
 | t (s) | token in context | under PENDING | indexed episode | narrated answer |

@@ -2,44 +2,44 @@
 
 Run: `2026-08-13T18:06:45+00:00`
 
-Namespace: `carrel-demo` · token `CARREL1786644405`
+Namespace: `Carrel-demo` · token `Carrel1786644405`
 
 The claim under test: after a fact is replaced, the store can answer
 both the present-tense and the historical question, and can say which
 value is current. A nearest-neighbour index cannot — it holds two
 equally plausible sentences with no relation between them.
 
-1. Storing: The CARREL1786644405 mini-project report is due on 5 November.
+1. Storing: The Carrel1786644405 mini-project report is due on 5 November.
    waiting 75s for the first write to index…
 **context before the revision**
 
 ```
 Long-term memory context (Reeve; use when not contradicted by short-term memory):
-[2026-08-13T18:06:54.019Z] The CARREL1786644405 mini-project report is due on 5 November.  (summary: The CARREL1786644405 mini-project report is due on 5 November., emotion=neutral, importance=0.5)
-  Entities: CARREL1786644405 mini-project report
-  State: CARREL1786644405 mini-project report.due date = 5 November
+[2026-08-13T18:06:54.019Z] The Carrel1786644405 mini-project report is due on 5 November.  (summary: The Carrel1786644405 mini-project report is due on 5 November., emotion=neutral, importance=0.5)
+  Entities: Carrel1786644405 mini-project report
+  State: Carrel1786644405 mini-project report.due date = 5 November
 ```
 
-2. Storing the contradiction: Prof. Nair moved the CARREL1786644405 mini-project report deadline to 19 November.
+2. Storing the contradiction: Prof. Nair moved the Carrel1786644405 mini-project report deadline to 19 November.
    waiting 75s for the second write to index…
 
 | Question | Answer |
 |---|---|
-| When is the CARREL1786644405 report due? | The CARREL1786644405 mini-project report is due on 19 November. |
-| When was the CARREL1786644405 report originally due? | The CARREL1786644405 mini-project report was originally due on 5 November. |
+| When is the Carrel1786644405 report due? | The Carrel1786644405 mini-project report is due on 19 November. |
+| When was the Carrel1786644405 report originally due? | The Carrel1786644405 mini-project report was originally due on 5 November. |
 
 **raw context after the revision**
 
 ```
 Long-term memory context (Reeve; use when not contradicted by short-term memory):
-[2026-08-13T18:06:54.019Z] The CARREL1786644405 mini-project report is due on 5 November.  (summary: The CARREL1786644405 mini-project report is due on 5 November., emotion=neutral, importance=0.5)
-  Entities: CARREL1786644405 mini-project report
-  State: CARREL1786644405 mini-project report.due date = 5 November
+[2026-08-13T18:06:54.019Z] The Carrel1786644405 mini-project report is due on 5 November.  (summary: The Carrel1786644405 mini-project report is due on 5 November., emotion=neutral, importance=0.5)
+  Entities: Carrel1786644405 mini-project report
+  State: Carrel1786644405 mini-project report.due date = 5 November
 
-[2026-08-13T18:08:15.191Z] Prof. Nair moved the CARREL1786644405 mini-project report deadline to 19 November.  (summary: Prof. Nair moved the CARREL1786644405 mini-project report deadline to 19 November., emotion=neutral, importance=0.5)
-  Entities: CARREL1786644405 mini-project report, Prof. Nair
-  Action: Prof. Nair moved → CARREL1786644405 mini-project report deadline
-  State: CARREL1786644405 mini-project report.deadline = 19 November
+[2026-08-13T18:08:15.191Z] Prof. Nair moved the Carrel1786644405 mini-project report deadline to 19 November.  (summary: Prof. Nair moved the Carrel1786644405 mini-project report deadline to 19 November., emotion=neutral, importance=0.5)
+  Entities: Carrel1786644405 mini-project report, Prof. Nair
+  Action: Prof. Nair moved → Carrel1786644405 mini-project report deadline
+  State: Carrel1786644405 mini-project report.deadline = 19 November
 
 Roles:
   Prof. Nair → professor

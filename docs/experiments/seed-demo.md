@@ -2,7 +2,7 @@
 
 Run: `2026-08-14T08:04:59+00:00`
 
-Namespace: `carrel-demo`
+Namespace: `Carrel-demo`
 
 ### Round one — 18 memories
 1. I am taking Digital Signal Processing, Compiler Design, and Machine Learning this semester.
