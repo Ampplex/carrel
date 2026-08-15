@@ -52,7 +52,7 @@ def create_note(payload: NoteIn, user: dict = Depends(auth.current_user)) -> Wri
             time.sleep(settings.chunk_pace_seconds)
         result = reeve_gateway.store_note(chunk, ns)
         accepted.append(
-            registry.add(kind="note", preview=chunk, batch_id=batch_id, store_result=result)
+            registry.add(namespace=ns, kind="note", preview=chunk, batch_id=batch_id, store_result=result)
         )
 
     return WriteAccepted(batch_id=batch_id, pending=accepted, chunked=len(chunks) > 1)
@@ -82,7 +82,7 @@ def _store_photo_bytes(raw: bytes, media_type: str, caption: str, ns: str) -> Ph
 
     result = reeve_gateway.store_photo(caption, encoded, media_type, ns)
     batch_id = uuid.uuid4().hex
-    accepted = registry.add(kind="photo", preview=caption, batch_id=batch_id, store_result=result)
+    accepted = registry.add(namespace=ns, kind="photo", preview=caption, batch_id=batch_id, store_result=result)
 
     return PhotoAccepted(
         batch_id=batch_id,

@@ -1,0 +1,60 @@
+# Carrel on the same EC2 box as the production MCP server.
+#
+# Its own compose project on purpose: `docker compose restart` here must never
+# be able to touch the container serving mcp.reeve.co.in. Nothing is published
+# on a public interface — nginx is the only way in, and the box's firewall
+# allows 22/80/443 and nothing else.
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: carrel-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: carrel
+      POSTGRES_DB: carrel
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+    # Bound to loopback so the tunnel works for maintenance and nothing else
+    # can reach it. A database on 0.0.0.0 would quietly undo the firewall.
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - carrel-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carrel -d carrel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    shm_size: 128mb
+    # Tuned down: this box has about a gigabyte free and is already running
+    # something that matters more than Carrel.
+    command: >
+      postgres -c shared_buffers=128MB -c max_connections=40
+               -c effective_cache_size=256MB -c work_mem=4MB
+
+  api:
+    build:
+      context: ../backend
+    image: carrel-api
+    container_name: carrel-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ./carrel.env
+    ports:
+      - "127.0.0.1:8010:8010"
+    # Guardrails, not optimisation. An API that can consume the whole box takes
+    # the MCP server down with it, and that is the failure worth preventing.
+    mem_limit: 512m
+    cpus: 1.0
+
+volumes:
+  carrel-db-data:
+
+secrets:
+  db_password:
+    file: ./db_password

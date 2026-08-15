@@ -55,14 +55,14 @@ def config() -> dict:
 
 
 @router.get("/api/pending", response_model=list[PendingWrite])
-def pending() -> list[PendingWrite]:
+def pending(user: dict = Depends(auth.current_user)) -> list[PendingWrite]:
     """Free, and called on a local timer only — never a network poll.
 
     Background polling for indexing status is the one pattern that would burn
     thousands of queries a day, so status here is computed from elapsed time and
     the only way to reach `indexed` is an explicit, user-triggered check.
     """
-    return registry.list()
+    return registry.list(user["namespace"])
 
 
 @router.post("/api/pending/{item_id}/verify")
@@ -72,7 +72,7 @@ def verify(item_id: str, user: dict = Depends(auth.current_user)) -> dict:
     The UI prints that cost on the button. This is the only call that can move a
     write to `indexed`, because it is the only one that actually looks.
     """
-    item = registry.get(item_id)
+    item = registry.get(user["namespace"], item_id)
     if item is None:
         raise HTTPException(status_code=404, detail="No such pending write.")
 
@@ -84,7 +84,7 @@ def verify(item_id: str, user: dict = Depends(auth.current_user)) -> dict:
     probe = item.preview[:40]
     found = bool(probe) and probe in long_term
 
-    updated = registry.mark_verified(item_id, found)
+    updated = registry.mark_verified(user["namespace"], item_id, found)
     return {
         "status": updated.status if updated else "unknown",
         "found": found,

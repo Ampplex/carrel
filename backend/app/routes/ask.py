@@ -46,7 +46,7 @@ def ask(payload: AskIn, user: dict = Depends(auth.current_user)) -> Answer:
         queries_used=queries,
         took_ms=int((time.monotonic() - started) * 1000),
         # Surfaced so the UI can caveat the answer instead of overclaiming.
-        unsettled_writes=registry.unsettled_count(),
+        unsettled_writes=registry.unsettled_count(user["namespace"]),
     )
 
 

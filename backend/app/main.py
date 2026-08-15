@@ -29,7 +29,12 @@ async def lifespan(app: FastAPI):
     start a listener thread; and the SSE handshake takes long enough that the
     first answer of a demo would otherwise be the slowest one.
     """
-    from app import reeve_gateway
+    from app import db, reeve_gateway
+
+    # Tables before traffic. Idempotent, and it means a fresh database needs no
+    # separate migration step to be a working deployment.
+    db.init_schema()
+    log.info("database ready")
 
     try:
         config = reeve_gateway.warm()

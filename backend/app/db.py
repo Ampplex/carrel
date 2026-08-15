@@ -1,0 +1,156 @@
+"""Postgres, and the reason the JSON files had to go.
+
+The files were the right call for one laptop: readable, no migrations, no server
+to run. They stop being the right call the moment two requests arrive at once.
+`path.write_text` is not atomic — a crash or an overlapping write between the
+truncate and the flush leaves `users.json` half-written, which is every account
+on the deployment. A lock inside one process does not help when the process is
+restarted mid-write, and helps even less when there is more than one worker.
+
+So: one connection pool, one schema, and writes that either happen or do not.
+
+The schema is applied at import rather than through a migration tool. There is
+one deployment and the statements are all `IF NOT EXISTS`, so running them on
+every boot costs a few milliseconds and removes an entire class of "did you
+remember to migrate" failure. When there are two deployments, this needs Alembic
+and this comment should be deleted.
+"""
+
+from __future__ import annotations
+
+import os
+from contextlib import contextmanager
+
+from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
+
+from app.config import settings
+
+_pool: ConnectionPool | None = None
+
+
+def configured() -> bool:
+    return bool(settings.database_url)
+
+
+def pool() -> ConnectionPool:
+    global _pool
+    if _pool is None:
+        if not settings.database_url:
+            raise RuntimeError(
+                "DATABASE_URL is not set. The app stores accounts, conversations "
+                "and photo metadata in Postgres; there is no file fallback."
+            )
+        _pool = ConnectionPool(
+            settings.database_url,
+            min_size=1,
+            # The box this runs on has ~1GB of RAM to spare and Postgres is
+            # capped at 40 connections. A pool that can outgrow the server is a
+            # failure that only appears under load.
+            max_size=8,
+            timeout=10,
+            kwargs={"row_factory": dict_row},
+            open=True,
+        )
+    return _pool
+
+
+@contextmanager
+def cursor(commit: bool = False):
+    """A cursor from the pool, rolled back on error rather than left dirty."""
+    with pool().connection() as conn:
+        with conn.cursor() as cur:
+            yield cur
+        if commit:
+            conn.commit()
+
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    email             TEXT PRIMARY KEY,
+    name              TEXT NOT NULL DEFAULT '',
+    -- Null for accounts that only ever sign in with Google. login() reads the
+    -- absence as "cannot be signed into that way" rather than as an error.
+    salt              TEXT,
+    password_hash     TEXT,
+    namespace         TEXT NOT NULL UNIQUE,
+    google_sub        TEXT NOT NULL DEFAULT '',
+    avatar_url        TEXT NOT NULL DEFAULT '',
+    terms_version     TEXT NOT NULL DEFAULT '',
+    terms_accepted_at DOUBLE PRECISION,
+    created_at        DOUBLE PRECISION NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+    token      TEXT PRIMARY KEY,
+    email      TEXT NOT NULL REFERENCES users(email) ON DELETE CASCADE,
+    created_at DOUBLE PRECISION NOT NULL
+);
+-- Deleting an account must not leave a usable token behind; the cascade above
+-- is what guarantees it rather than remembering to do it in application code.
+CREATE INDEX IF NOT EXISTS sessions_email_idx ON sessions (email);
+
+CREATE TABLE IF NOT EXISTS chats (
+    id         TEXT PRIMARY KEY,
+    namespace  TEXT NOT NULL,
+    title      TEXT NOT NULL DEFAULT 'New chat',
+    created_at DOUBLE PRECISION NOT NULL,
+    updated_at DOUBLE PRECISION NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chats_namespace_idx ON chats (namespace, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id         BIGSERIAL PRIMARY KEY,
+    chat_id    TEXT NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    role       TEXT NOT NULL,
+    text       TEXT NOT NULL DEFAULT '',
+    thumb_url  TEXT,
+    meta       TEXT,
+    question   TEXT,
+    created_at DOUBLE PRECISION NOT NULL
+);
+CREATE INDEX IF NOT EXISTS messages_chat_idx ON messages (chat_id, id);
+
+CREATE TABLE IF NOT EXISTS photos (
+    photo_id   TEXT PRIMARY KEY,
+    namespace  TEXT NOT NULL,
+    caption    TEXT NOT NULL DEFAULT '',
+    media_type TEXT NOT NULL,
+    -- Where the bytes actually are. Not on this machine: the box runs a
+    -- production MCP server on the same 6GB volume, and photographs are the
+    -- only thing here that grows without bound.
+    storage_key TEXT NOT NULL,
+    stored_at  DOUBLE PRECISION NOT NULL
+);
+CREATE INDEX IF NOT EXISTS photos_namespace_idx ON photos (namespace, stored_at DESC);
+
+-- The settling tray. It lived in process memory, which was fine for one
+-- long-running server and wrong for anything that restarts or scales: a deploy
+-- would erase every "still settling" marker and the app would claim writes were
+-- indexed that it had never confirmed.
+CREATE TABLE IF NOT EXISTS pending_writes (
+    id          TEXT PRIMARY KEY,
+    namespace   TEXT NOT NULL,
+    pending_id  TEXT,
+    kind        TEXT NOT NULL,
+    preview     TEXT NOT NULL DEFAULT '',
+    batch_id    TEXT NOT NULL DEFAULT '',
+    status      TEXT NOT NULL,
+    created_at  DOUBLE PRECISION NOT NULL,
+    verified_at DOUBLE PRECISION
+);
+CREATE INDEX IF NOT EXISTS pending_namespace_idx ON pending_writes (namespace, created_at DESC);
+"""
+
+
+def init_schema() -> None:
+    """Idempotent. Safe to run on every boot, and it does."""
+    with cursor(commit=True) as cur:
+        cur.execute(SCHEMA)
+
+
+def close() -> None:
+    global _pool
+    if _pool is not None:
+        _pool.close()
+        _pool = None

@@ -49,6 +49,23 @@ class Settings:
     allow_reset: bool = field(default_factory=lambda: _flag("CARREL_ALLOW_RESET"))
     demo_replay: bool = field(default_factory=lambda: _flag("CARREL_DEMO_REPLAY"))
 
+    # Postgres. repr=False for the same reason as the API key: it carries a
+    # password, and a dataclass prints every field into any traceback.
+    database_url: str = field(
+        default_factory=lambda: os.environ.get("DATABASE_URL", "").strip(), repr=False
+    )
+
+    # Where photo bytes live. Not on the application server: that box runs a
+    # production MCP server on a 6GB volume, and photographs are the only thing
+    # in this system that grows without bound.
+    s3_bucket: str = field(default_factory=lambda: os.environ.get("CARREL_S3_BUCKET", "").strip())
+    s3_prefix: str = field(
+        default_factory=lambda: os.environ.get("CARREL_S3_PREFIX", "carrel/photos").strip()
+    )
+    s3_region: str = field(
+        default_factory=lambda: os.environ.get("AWS_REGION", "ap-south-1").strip()
+    )
+
     # Every OAuth client allowed to mint an ID token this server will accept.
     # Plural because Google issues a separate client ID per platform, and the
     # `aud` claim carries whichever one the app was built with — the iOS client

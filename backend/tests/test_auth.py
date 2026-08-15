@@ -17,23 +17,30 @@ import pytest
 
 from app import auth
 
+def _stored(email: str) -> dict:
+    """One account, straight from the database.
 
-@pytest.fixture(autouse=True)
-def _isolated_store(tmp_path, monkeypatch):
-    """Point the JSON stores at a temp dir.
-
-    Without this the suite would write to the real `var/users.json` — the file
-    holding live password hashes for whoever is using the app.
+    The tests used to read `users.json`. Reading the row keeps them asserting on
+    what was actually persisted rather than on what the API chose to return —
+    which is the point of checking the consent record at all.
     """
-    monkeypatch.setattr(auth, "_USERS", tmp_path / "users.json")
-    monkeypatch.setattr(auth, "_SESSIONS", tmp_path / "sessions.json")
-    yield
+    from app.db import cursor
+
+    with cursor() as cur:
+        cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+        return cur.fetchone() or {}
+
+
+
+# Isolation now comes from conftest: a separate `carrel_test` database, wiped
+# between tests. The old fixture pointed two module-level Paths at tmp_path,
+# which no longer exist — accounts live in Postgres.
 
 
 def test_registration_records_the_terms_version_the_client_displayed():
     auth.register("ada@example.com", "correct horse", terms_version="2026-08-14")
 
-    user = auth._read(auth._USERS)["ada@example.com"]
+    user = _stored("ada@example.com")
     assert user["terms_version"] == "2026-08-14"
     assert user["terms_accepted_at"] > 0
 
@@ -44,7 +51,7 @@ def test_a_client_that_sends_no_version_can_still_register():
     session = auth.register("grace@example.com", "a good password")
 
     assert session["token"]
-    assert auth._read(auth._USERS)["grace@example.com"]["terms_version"] == ""
+    assert _stored("grace@example.com")["terms_version"] == ""
 
 
 def test_namespace_is_stable_per_email_and_never_shared():

@@ -1,41 +1,35 @@
 """Accounts, and the reason they exist at all.
 
-Until now the namespace was a server-side constant: one deployment, one memory.
-Accounts change that — each person gets their own namespace, and the important
-property is that **the client never names it**. It is derived from the
-authenticated account, so a request can only ever reach the memory belonging to
-whoever is holding the token. A namespace partitions data inside a Reeve
-account; it does not secure it, so the security has to live here.
+The namespace is derived from the authenticated account and **the client never
+names it**, so a request can only ever reach the memory belonging to whoever is
+holding the token. A namespace partitions data inside a Reeve account; it does
+not secure it, so the security has to live here.
 
-Deliberately small: scrypt from the standard library, users and sessions in two
-JSON files. No ORM, no migrations, no third-party auth dependency. This is a
-project backend serving one deployment, and a database would be more moving
-parts than the problem has.
+This used to keep users and sessions in two JSON files, which was the right
+call for one laptop and the wrong one for a server. `write_text` is not atomic:
+an overlapping write, or a crash between truncate and flush, leaves the file
+holding every account on the deployment half-written. Postgres makes a write
+either happen or not, and the session foreign key means deleting an account
+cannot leave a working token behind — that used to be application code
+remembering to do the right thing.
 
-What this is NOT: a password reset flow, email verification, rate limiting on
-login, or refresh-token rotation. Those matter for a product with real users and
-are listed in the README as missing rather than half-implemented here, because a
-half-built auth flow is worse than an obviously minimal one.
+What this is still NOT: email verification, password reset, or rate limiting on
+login. Those matter for a product with real users and are listed in the README
+as missing rather than half-implemented here, because a half-built auth flow is
+worse than an obviously minimal one.
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
-import json
-import os
 import re
 import secrets
-import threading
 import time
 
 from fastapi import Header, HTTPException
 
-from app.config import settings
-
-_USERS = settings.var_dir / "users.json"
-_SESSIONS = settings.var_dir / "sessions.json"
-_lock = threading.Lock()
+from app.db import cursor
 
 # scrypt parameters. n=2**14 keeps a login around a tenth of a second on this
 # hardware — slow enough to make guessing expensive, fast enough that signing in
@@ -47,24 +41,6 @@ _SCRYPT_P = 1
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 30  # a month; this is a notebook, not a bank
-
-
-def _read(path) -> dict:
-    if path.exists():
-        try:
-            return json.loads(path.read_text())
-        except (json.JSONDecodeError, OSError):
-            pass
-    return {}
-
-
-def _write(path, data: dict) -> None:
-    settings.var_dir.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2))
-    try:
-        os.chmod(path, 0o600)  # password hashes and live tokens
-    except OSError:
-        pass
 
 
 def _hash(password: str, salt: bytes) -> str:
@@ -82,6 +58,11 @@ def _namespace_for(email: str) -> str:
     return "u" + hashlib.sha256(email.lower().encode("utf-8")).hexdigest()[:16]
 
 
+def _get_user(cur, email: str) -> dict | None:
+    cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+    return cur.fetchone()
+
+
 def register(email: str, password: str, name: str = "", terms_version: str = "") -> dict:
     email = (email or "").strip().lower()
     if not _EMAIL_RE.match(email):
@@ -89,34 +70,38 @@ def register(email: str, password: str, name: str = "", terms_version: str = "")
     if len(password or "") < 8:
         raise ValueError("Use at least 8 characters.")
 
-    with _lock:
-        users = _read(_USERS)
-        if email in users:
+    salt = secrets.token_bytes(16)
+    now = time.time()
+    with cursor(commit=True) as cur:
+        if _get_user(cur, email) is not None:
             raise ValueError("There is already an account with that email.")
-        salt = secrets.token_bytes(16)
-        users[email] = {
-            "name": (name or "").strip()[:60],
-            "salt": salt.hex(),
-            "hash": _hash(password, salt),
-            "namespace": _namespace_for(email),
-            "created_at": time.time(),
-            # Which wording was on screen when this account was created. The
-            # client sends it because the client is what displayed it; the
-            # server's own copy may have moved on by the time anyone looks.
-            # Not enforced — an older or absent version is a fact to record,
-            # not a reason to refuse a sign-up.
-            "terms_version": (terms_version or "").strip()[:40],
-            "terms_accepted_at": time.time(),
-        }
-        _write(_USERS, users)
+        cur.execute(
+            """
+            INSERT INTO users (email, name, salt, password_hash, namespace,
+                               terms_version, terms_accepted_at, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            (
+                email,
+                (name or "").strip()[:60],
+                salt.hex(),
+                _hash(password, salt),
+                _namespace_for(email),
+                # Which wording was on screen when this account was created. The
+                # client sends it because the client is what displayed it; the
+                # server's own copy may have moved on by the time anyone looks.
+                (terms_version or "").strip()[:40],
+                now,
+                now,
+            ),
+        )
     return _issue(email)
 
 
 def login(email: str, password: str) -> dict:
     email = (email or "").strip().lower()
-    with _lock:
-        users = _read(_USERS)
-        user = users.get(email)
+    with cursor() as cur:
+        user = _get_user(cur, email)
 
     # Same message and comparable work whether or not the account exists, so the
     # response cannot be used to enumerate who has signed up.
@@ -124,19 +109,16 @@ def login(email: str, password: str) -> dict:
         _hash(password or "", secrets.token_bytes(16))
         raise ValueError("Email or password is wrong.")
 
-    # An account created through Google has no password at all. Same message and
-    # same work as a missing account: saying "that one uses Google" would be
-    # friendlier, but it would also answer "does this person have an account
-    # here?" for anyone who asks, which is the thing this branch exists to
-    # refuse. The message stays true either way — there is no password, so no
-    # password can be right.
-    if not user.get("hash") or not user.get("salt"):
+    # An account created through Google has no password at all. Saying "that one
+    # uses Google" would be friendlier and would also answer "does this person
+    # have an account here?" for anyone who asks. The message stays true either
+    # way: there is no password, so no password can be right.
+    if not user.get("password_hash") or not user.get("salt"):
         _hash(password or "", secrets.token_bytes(16))
         raise ValueError("Email or password is wrong.")
 
-    expected = user["hash"]
     actual = _hash(password or "", bytes.fromhex(user["salt"]))
-    if not hmac.compare_digest(expected, actual):
+    if not hmac.compare_digest(user["password_hash"], actual):
         raise ValueError("Email or password is wrong.")
 
     return _issue(email)
@@ -156,63 +138,60 @@ def sign_in_with_google(
     See app/google_auth.py for what that verification has to include.
 
     An address that already has a password account is *linked*, not rejected:
-    same email, same namespace, same memories, now reachable two ways. The
-    alternative — refusing — would mean telling the caller that an account
-    already exists, which leaks exactly what login() is careful not to.
+    same email, same namespace, same memories, now reachable two ways. Refusing
+    would announce that an account exists, which login() is careful never to do.
 
-    The honest caveat: Carrel never verifies the email addresses used at
+    The honest caveat: Carrel does not verify the email addresses used at
     registration, so somebody could sign up with an address they do not own and
     a later Google sign-in by the real owner would join that account rather than
-    a fresh one. Verifying addresses at registration is the fix, and it is
-    listed as missing rather than half-built.
+    a fresh one. Verifying addresses at registration is the fix, and it is listed
+    as missing rather than half-built.
     """
     email = (email or "").strip().lower()
     if not _EMAIL_RE.match(email):
         raise ValueError("That Google account has no usable email address.")
 
     now = time.time()
-    with _lock:
-        users = _read(_USERS)
-        user = users.get(email)
-        if user is None:
-            users[email] = {
-                "name": (name or "").strip()[:60],
-                # No salt, no hash: there is no password to store. login()
-                # treats their absence as "cannot be signed into that way".
-                "namespace": _namespace_for(email),
-                "created_at": now,
-                "terms_version": (terms_version or "").strip()[:40],
-                "terms_accepted_at": now,
-                "google_sub": subject,
-                "avatar_url": picture,
-            }
-        else:
-            user["google_sub"] = subject or user.get("google_sub", "")
-            # Refreshed every sign-in: people change their Google photo, and a
-            # stale one is worse than none.
-            if picture:
-                user["avatar_url"] = picture
-            # Only fills a gap; never overwrites a name the person chose here.
-            if name and not user.get("name"):
-                user["name"] = name.strip()[:60]
-        _write(_USERS, users)
+    with cursor(commit=True) as cur:
+        cur.execute(
+            """
+            INSERT INTO users (email, name, namespace, google_sub, avatar_url,
+                               terms_version, terms_accepted_at, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (email) DO UPDATE SET
+                google_sub = COALESCE(NULLIF(EXCLUDED.google_sub, ''), users.google_sub),
+                -- Refreshed every sign-in: people change their Google photo,
+                -- and a stale one is worse than none.
+                avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), users.avatar_url),
+                -- Only fills a gap; never overwrites a name chosen here.
+                name = CASE WHEN users.name = '' THEN EXCLUDED.name ELSE users.name END
+            """,
+            (
+                email,
+                (name or "").strip()[:60],
+                _namespace_for(email),
+                subject,
+                picture,
+                (terms_version or "").strip()[:40],
+                now,
+                now,
+            ),
+        )
     return _issue(email)
 
 
 def _issue(email: str) -> dict:
     token = secrets.token_urlsafe(32)
-    with _lock:
-        sessions = _read(_SESSIONS)
-        now = time.time()
+    now = time.time()
+    with cursor(commit=True) as cur:
         # Opportunistic sweep: expired tokens are useless and this is the only
-        # moment the file is already open.
-        sessions = {
-            t: s for t, s in sessions.items() if now - s.get("created_at", 0) < SESSION_TTL_SECONDS
-        }
-        sessions[token] = {"email": email, "created_at": now}
-        _write(_SESSIONS, sessions)
-        users = _read(_USERS)
-        user = users[email]
+        # moment the table is already being written to.
+        cur.execute("DELETE FROM sessions WHERE created_at < %s", (now - SESSION_TTL_SECONDS,))
+        cur.execute(
+            "INSERT INTO sessions (token, email, created_at) VALUES (%s, %s, %s)",
+            (token, email, now),
+        )
+        user = _get_user(cur, email)
     return {
         "token": token,
         "email": email,
@@ -223,53 +202,46 @@ def _issue(email: str) -> dict:
 
 
 def logout(token: str) -> None:
-    with _lock:
-        sessions = _read(_SESSIONS)
-        if sessions.pop(token, None) is not None:
-            _write(_SESSIONS, sessions)
+    if not token:
+        return
+    with cursor(commit=True) as cur:
+        cur.execute("DELETE FROM sessions WHERE token = %s", (token,))
 
 
 def delete_account(email: str) -> bool:
-    """Remove the login and every session it holds.
-
-    Sessions go too, or a token issued minutes ago would keep working against an
-    account that no longer exists.
-    """
+    """Remove the login. Sessions go with it, by the foreign key rather than by
+    remembering to delete them — a token issued minutes ago must not outlive the
+    account it belongs to."""
     email = (email or "").strip().lower()
-    with _lock:
-        users = _read(_USERS)
-        if users.pop(email, None) is None:
-            return False
-        _write(_USERS, users)
-
-        sessions = _read(_SESSIONS)
-        remaining = {t: s for t, s in sessions.items() if s.get("email") != email}
-        if len(remaining) != len(sessions):
-            _write(_SESSIONS, remaining)
-    return True
+    with cursor(commit=True) as cur:
+        cur.execute("DELETE FROM users WHERE email = %s", (email,))
+        return cur.rowcount > 0
 
 
 def resolve(token: str) -> dict | None:
     """Token → account, or None if unknown or expired."""
     if not token:
         return None
-    with _lock:
-        sessions = _read(_SESSIONS)
-        session = sessions.get(token)
-        if session is None:
+    with cursor(commit=True) as cur:
+        cur.execute(
+            """
+            SELECT s.created_at AS session_created, u.*
+            FROM sessions s JOIN users u ON u.email = s.email
+            WHERE s.token = %s
+            """,
+            (token,),
+        )
+        row = cur.fetchone()
+        if row is None:
             return None
-        if time.time() - session.get("created_at", 0) >= SESSION_TTL_SECONDS:
-            sessions.pop(token, None)
-            _write(_SESSIONS, sessions)
+        if time.time() - row["session_created"] >= SESSION_TTL_SECONDS:
+            cur.execute("DELETE FROM sessions WHERE token = %s", (token,))
             return None
-        user = _read(_USERS).get(session["email"])
-    if user is None:
-        return None
     return {
-        "email": session["email"],
-        "name": user.get("name", ""),
-        "namespace": user["namespace"],
-        "avatar_url": user.get("avatar_url", ""),
+        "email": row["email"],
+        "name": row.get("name", ""),
+        "namespace": row["namespace"],
+        "avatar_url": row.get("avatar_url", ""),
     }
 
 

@@ -22,7 +22,7 @@ import base64
 import time
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi import Response
 from starlette.concurrency import run_in_threadpool
 
 from app import auth, photo_store, quota, reeve_gateway
@@ -50,11 +50,28 @@ def list_photos(user: dict = Depends(auth.current_user)) -> list[PhotoOut]:
 
 
 @router.get("/api/photos/{photo_id}/raw")
-def photo_raw(photo_id: str, user: dict = Depends(auth.current_user)) -> FileResponse:
+def photo_raw(photo_id: str, user: dict = Depends(auth.current_user)) -> Response:
+    """Bytes, streamed through this server rather than redirected to S3.
+
+    A presigned URL would be one line and would also hand out a link that works
+    for anyone who has it, for as long as it lives, with no account check. Going
+    through the route keeps every read behind the same ownership test as
+    everything else, at the cost of the bytes passing through here.
+    """
     photo = photo_store.get(photo_id, user["namespace"])
-    if photo is None or not photo.path.exists():
+    if photo is None:
         raise HTTPException(status_code=404, detail="Photo not found.")
-    return FileResponse(photo.path, media_type=photo.media_type)
+    try:
+        raw = photo_store.read_bytes(photo)
+    except Exception as exc:  # noqa: BLE001 - the object may be gone
+        raise HTTPException(status_code=404, detail="Photo not found.") from exc
+    return Response(
+        content=raw,
+        media_type=photo.media_type,
+        # Private: this is one account's photograph and must never be held by a
+        # shared cache on the way back.
+        headers={"Cache-Control": "private, max-age=86400"},
+    )
 
 
 @router.post("/api/photos/ask", response_model=PhotoAnswer)

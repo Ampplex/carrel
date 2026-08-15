@@ -21,6 +21,12 @@ dependencies = [
     # pulls it in: a dependency you rely on but never declare is one that
     # vanishes the day the package that happened to carry it drops it.
     "google-auth>=2.30",
+    # Postgres. The JSON files were fine for one laptop and unsafe for a server:
+    # write_text is not atomic, so a crash mid-write loses every account.
+    "psycopg[binary,pool]>=3.2",
+    # Photo bytes go to S3 rather than the app server's disk, which is shared
+    # with a production MCP server on a 6GB volume.
+    "boto3>=1.34",
 ]
 
 [project.optional-dependencies]

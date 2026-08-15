@@ -19,12 +19,23 @@ import pytest
 
 from app import auth, google_auth
 
+def _stored(email: str) -> dict:
+    """One account, straight from the database.
 
-@pytest.fixture(autouse=True)
-def _isolated_store(tmp_path, monkeypatch):
-    monkeypatch.setattr(auth, "_USERS", tmp_path / "users.json")
-    monkeypatch.setattr(auth, "_SESSIONS", tmp_path / "sessions.json")
-    yield
+    The tests used to read `users.json`. Reading the row keeps them asserting on
+    what was actually persisted rather than on what the API chose to return —
+    which is the point of checking the consent record at all.
+    """
+    from app.db import cursor
+
+    with cursor() as cur:
+        cur.execute("SELECT * FROM users WHERE email = %s", (email,))
+        return cur.fetchone() or {}
+
+
+
+# Isolation comes from conftest: a separate carrel_test database, wiped
+# between tests.
 
 
 @pytest.fixture
@@ -151,7 +162,7 @@ def test_garbage_is_refused_without_saying_why(monkeypatch, google):
 def test_first_google_sign_in_creates_an_account():
     session = auth.sign_in_with_google("new@example.com", "New Person", "sub-1", "2026-08-14")
 
-    stored = auth._read(auth._USERS)["new@example.com"]
+    stored = _stored("new@example.com")
     assert stored["google_sub"] == "sub-1"
     assert stored["terms_version"] == "2026-08-14"
     assert session["token"]
@@ -162,7 +173,7 @@ def test_signing_in_again_reuses_the_same_memory():
     second = auth.sign_in_with_google("repeat@example.com", "Person", "sub-1")
 
     assert first["namespace"] == second["namespace"]
-    assert len(auth._read(auth._USERS)) == 1
+    assert _count_users() == 1
 
 
 def test_google_links_to_an_existing_password_account():
@@ -173,7 +184,7 @@ def test_google_links_to_an_existing_password_account():
     google_account = auth.sign_in_with_google("both@example.com", "Both", "sub-9")
 
     assert google_account["namespace"] == password_account["namespace"]
-    assert len(auth._read(auth._USERS)) == 1
+    assert _count_users() == 1
 
 
 def test_linking_does_not_destroy_the_password():
@@ -239,3 +250,10 @@ def test_route_separates_a_bad_token_from_an_unconfigured_server(monkeypatch, go
 
     _configure(monkeypatch)
     assert _client().post("/api/auth/google", json={"id_token": "rubbish"}).status_code == 503
+
+
+def _count_users() -> int:
+    from app.db import cursor
+
+    with cursor() as cur:
+        return cur.execute("SELECT count(*) AS n FROM users").fetchone()["n"]
