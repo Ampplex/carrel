@@ -288,11 +288,11 @@ def sign_in_with_google(
         # silent takeover in the dishonest one. Verifying addresses at
         # registration removes the trade entirely, and needs a mail sender this
         # deployment does not have.
-        cur.execute(
-            "SELECT 1 FROM users WHERE email = %s AND password_hash IS NOT NULL",
-            (email,),
-        )
-        password_revoked = cur.fetchone() is not None
+        cur.execute("SELECT password_hash IS NOT NULL AS has_password FROM users WHERE email = %s",
+                    (email,))
+        existing = cur.fetchone()
+        created = existing is None
+        password_revoked = bool(existing and existing["has_password"])
         if password_revoked:
             cur.execute(
                 "UPDATE users SET salt = NULL, password_hash = NULL WHERE email = %s",
@@ -303,15 +303,19 @@ def sign_in_with_google(
         cur.execute(
             """
             INSERT INTO users (email, name, namespace, google_sub, avatar_url,
-                               terms_version, terms_accepted_at, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                               terms_version, terms_accepted_at, created_at,
+                               email_verified)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, TRUE)
             ON CONFLICT (email) DO UPDATE SET
                 google_sub = COALESCE(NULLIF(EXCLUDED.google_sub, ''), users.google_sub),
                 -- Refreshed every sign-in: people change their Google photo,
                 -- and a stale one is worse than none.
                 avatar_url = COALESCE(NULLIF(EXCLUDED.avatar_url, ''), users.avatar_url),
                 -- Only fills a gap; never overwrites a name chosen here.
-                name = CASE WHEN users.name = '' THEN EXCLUDED.name ELSE users.name END
+                name = CASE WHEN users.name = '' THEN EXCLUDED.name ELSE users.name END,
+                -- Google verified this address to issue the token at all, so
+                -- there is nothing left for us to confirm.
+                email_verified = TRUE
             """,
             (
                 email,
@@ -330,6 +334,7 @@ def sign_in_with_google(
     # password that silently stops working reads as a bug, and arrives as a
     # support message rather than as the security measure it is.
     session["password_revoked"] = password_revoked
+    session["created"] = created
     return session
 
 

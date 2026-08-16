@@ -54,7 +54,7 @@ def register(payload: Credentials) -> Session:
     # Best effort, deliberately not blocking. A mail provider having a bad
     # minute must not stop somebody creating an account: the address is
     # unverified either way, and everything in the app works regardless.
-    _send_verification(result["email"])
+    _send_welcome(result["email"], result.get("name", ""))
 
     return Session(
         token=result["token"],
@@ -64,23 +64,48 @@ def register(payload: Credentials) -> Session:
     )
 
 
-def _send_verification(email: str) -> None:
+def _send_welcome(email: str, name: str = "", confirm: bool = True) -> None:
+    """One email on sign-up, not two.
+
+    It used to be a bare "confirm your email", which is a chore dressed as a
+    greeting. This is the first thing Carrel ever says to somebody, so it says
+    what the app is for — and carries the confirmation link as a footnote
+    rather than as the entire point.
+
+    `confirm=False` for accounts created through Google: Google has already
+    proved the address, and asking somebody to confirm an address that is
+    demonstrably theirs is ceremony.
+    """
     if not mailer.configured():
         return
+
+    greeting = f"Welcome to Carrel, {name.split()[0]}." if name.strip() else "Welcome to Carrel."
+    body = (
+        f"{greeting}\n\n"
+        "Tell it things you will want later — a name, a room number, where you "
+        "put something — and ask for them in plain words whenever you need them. "
+        "Photographs work too: Carrel reads them, so you can ask about a "
+        "whiteboard or a page months after you took it.\n\n"
+        "Everything you store is yours alone, and Settings can erase all of it "
+        "at any time, immediately.\n"
+    )
+
+    if confirm:
+        try:
+            token = email_tokens.issue(email, email_tokens.VERIFY)
+            link = f"{settings.public_base_url}/verify?token={token}"
+            body += (
+                "\nOne last thing: confirm this address so you can reset your "
+                f"password if you ever need to.\n\n{link}\n\n"
+                "That link expires in a day.\n"
+            )
+        except Exception as exc:  # noqa: BLE001 - a greeting is still worth sending
+            log.warning("could not attach a confirmation link for %s: %s", email, exc)
+
     try:
-        token = email_tokens.issue(email, email_tokens.VERIFY)
-        link = f"{settings.public_base_url}/verify?token={token}"
-        mailer.send(
-            email,
-            "Confirm your email for Carrel",
-            text=(
-                "Welcome to Carrel.\n\nConfirm this address so you can reset your "
-                f"password later if you need to:\n\n{link}\n\n"
-                "The link expires in a day. Ignore this if you did not sign up.\n"
-            ),
-        )
+        mailer.send(email, "Welcome to Carrel", text=body)
     except Exception as exc:  # noqa: BLE001 - never fail a sign-up over an email
-        log.warning("verification email failed for %s: %s", email, exc)
+        log.warning("welcome email failed for %s: %s", email, exc)
 
 
 def _client_ip(request: Request) -> str:
@@ -152,6 +177,11 @@ def google_sign_in(payload: GoogleIn) -> Session:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # Only the first time. Google sign-in is also how these accounts sign in
+    # every day after, and a welcome email every morning would be a bug.
+    if result.get("created"):
+        _send_welcome(result["email"], result.get("name", ""), confirm=False)
+
     return Session(
         token=result["token"],
         email=result["email"],
