@@ -147,6 +147,17 @@ def mark_email_verified(email: str) -> bool:
         return cur.rowcount > 0
 
 
+def account_exists(email: str) -> bool:
+    """Whether any account uses this address, password or not.
+
+    Only ever used to decide which email to send — never to shape an HTTP
+    response, which must look identical whatever the answer.
+    """
+    with cursor() as cur:
+        cur.execute("SELECT 1 FROM users WHERE email = %s", (email,))
+        return cur.fetchone() is not None
+
+
 def has_password(email: str) -> bool:
     with cursor() as cur:
         cur.execute(

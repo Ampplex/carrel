@@ -50,7 +50,7 @@ def test_a_reset_link_actually_changes_the_password(mail):
     assert client.post("/api/auth/forgot", json={"email": "ada@example.com"}).status_code == 200
     token = _token_from(mail[0]["text"])
 
-    response = client.post("/reset", data={"token": token, "password": "a brand new one"})
+    response = client.post("/reset", data={"token": token, "password": "a brand new one", "confirm": "a brand new one"})
     assert response.status_code == 200
     assert "Password changed" in response.text
 
@@ -67,7 +67,7 @@ def test_resetting_signs_out_every_existing_session(mail):
 
     client = TestClient(app)
     client.post("/api/auth/forgot", json={"email": "ada@example.com"})
-    client.post("/reset", data={"token": _token_from(mail[0]["text"]), "password": "a new one"})
+    client.post("/reset", data={"token": _token_from(mail[0]["text"]), "password": "a new one", "confirm": "a new one"})
 
     assert auth.resolve(session["token"]) is None
 
@@ -79,9 +79,9 @@ def test_a_link_works_once(mail):
     token = _token_from(mail[0]["text"])
 
     assert "Password changed" in client.post(
-        "/reset", data={"token": token, "password": "first new password"}
+        "/reset", data={"token": token, "password": "first new password", "confirm": "first new password"}
     ).text
-    second = client.post("/reset", data={"token": token, "password": "second new password"})
+    second = client.post("/reset", data={"token": token, "password": "second new password", "confirm": "second new password"})
     assert "Link expired" in second.text
 
     # And the second attempt changed nothing.
@@ -100,7 +100,7 @@ def test_showing_the_form_does_not_spend_the_token(mail):
     client.get(f"/reset?token={token}")
 
     assert "Password changed" in client.post(
-        "/reset", data={"token": token, "password": "still works fine"}
+        "/reset", data={"token": token, "password": "still works fine", "confirm": "still works fine"}
     ).text
 
 
@@ -117,7 +117,7 @@ def test_an_expired_link_is_refused(mail):
         )
 
     assert "Link expired" in client.post(
-        "/reset", data={"token": token, "password": "should not work"}
+        "/reset", data={"token": token, "password": "should not work", "confirm": "should not work"}
     ).text
     assert auth.login("ada@example.com", "the old password", "10.0.0.1")["token"]
 
@@ -134,16 +134,20 @@ def test_asking_again_invalidates_the_first_link(mail):
     second = _token_from(mail[1]["text"])
 
     assert "Link expired" in client.post(
-        "/reset", data={"token": first, "password": "via the old link"}
+        "/reset", data={"token": first, "password": "via the old link", "confirm": "via the old link"}
     ).text
     assert "Password changed" in client.post(
-        "/reset", data={"token": second, "password": "via the new link"}
+        "/reset", data={"token": second, "password": "via the new link", "confirm": "via the new link"}
     ).text
 
 
 def test_forgot_never_reveals_whether_an_account_exists(mail):
     """Otherwise 'I forgot my password' becomes a way to ask 'is this person
-    registered here?' — which login() is careful never to answer."""
+    registered here?' — which login() is careful never to answer.
+
+    The HTTP response is what must not vary. What arrives in the inbox may, and
+    does: only the person who can read it learns which case they are in.
+    """
     auth.register("real@example.com", "a password")
     auth.sign_in_with_google("google-only@example.com", subject="g-1")
     client = TestClient(app)
@@ -156,8 +160,33 @@ def test_forgot_never_reveals_whether_an_account_exists(mail):
     assert {r.status_code for r in responses} == {200}
     assert len({r.json()["message"] for r in responses}) == 1
 
-    # Only the account that actually has a password got mail.
-    assert [m["to"] for m in mail] == ["real@example.com"]
+
+def test_every_case_gets_an_email_that_says_what_happened(mail):
+    """Nobody is left waiting for a message that is never coming.
+
+    The case that forced this: an account created through Google has no
+    password, so the earlier version sent nothing while saying "check your
+    email". Somebody who had forgotten they used Google would wait forever.
+    """
+    auth.register("real@example.com", "a password")
+    auth.sign_in_with_google("google-only@example.com", subject="g-1")
+    client = TestClient(app)
+
+    for address in ("real@example.com", "google-only@example.com", "nobody@example.com"):
+        client.post("/api/auth/forgot", json={"email": address})
+
+    by_address = {m["to"]: m for m in mail}
+    assert set(by_address) == {"real@example.com", "google-only@example.com", "nobody@example.com"}
+
+    assert "token=" in by_address["real@example.com"]["text"]
+
+    google_only = by_address["google-only@example.com"]
+    assert "token=" not in google_only["text"], "a Google-only account has nothing to reset"
+    assert "Google" in google_only["subject"]
+
+    missing = by_address["nobody@example.com"]
+    assert "token=" not in missing["text"], "no account means no reset link"
+    assert "no Carrel account" in missing["text"]
 
 
 def test_forgot_is_honest_when_email_is_not_configured(monkeypatch):
@@ -178,7 +207,7 @@ def test_a_completed_reset_counts_as_verifying_the_address(mail):
     auth.register("ada@example.com", "the old password")
     client = TestClient(app)
     client.post("/api/auth/forgot", json={"email": "ada@example.com"})
-    client.post("/reset", data={"token": _token_from(mail[0]["text"]), "password": "a new one"})
+    client.post("/reset", data={"token": _token_from(mail[0]["text"]), "password": "a new one", "confirm": "a new one"})
 
     with cursor() as cur:
         cur.execute("SELECT email_verified FROM users WHERE email = %s", ("ada@example.com",))
@@ -198,7 +227,7 @@ def test_a_reset_clears_the_sign_in_lockout(mail):
 
     client = TestClient(app)
     client.post("/api/auth/forgot", json={"email": "ada@example.com"})
-    client.post("/reset", data={"token": _token_from(mail[0]["text"]), "password": "a new one"})
+    client.post("/reset", data={"token": _token_from(mail[0]["text"]), "password": "a new one", "confirm": "a new one"})
 
     assert auth.login("ada@example.com", "a new one", "10.0.0.1")["token"]
 
@@ -217,3 +246,51 @@ def test_tokens_are_not_stored_in_a_usable_form(mail):
     assert stored
     assert token not in stored
     assert all(len(h) == 64 for h in stored)
+
+
+def test_mismatched_passwords_are_refused_without_burning_the_link(mail):
+    """A single-use token makes a typo expensive: the earlier version spent the
+    token first, so mistyping left somebody with a password they did not know
+    and no way to change it without another email."""
+    auth.register("ada@example.com", "the old password")
+    client = TestClient(app)
+    client.post("/api/auth/forgot", json={"email": "ada@example.com"})
+    token = _token_from(mail[0]["text"])
+
+    rejected = client.post(
+        "/reset", data={"token": token, "password": "one password", "confirm": "another one"}
+    )
+    assert "do not match" in rejected.text
+    # Old password still works: nothing was changed.
+    assert auth.login("ada@example.com", "the old password", "10.0.0.1")["token"]
+
+    # And the link survived, so the retry needs no new email.
+    assert "Password changed" in client.post(
+        "/reset", data={"token": token, "password": "matching one", "confirm": "matching one"}
+    ).text
+    assert auth.login("ada@example.com", "matching one", "10.0.0.1")["token"]
+
+
+def test_a_short_password_also_leaves_the_link_alive(mail):
+    auth.register("ada@example.com", "the old password")
+    client = TestClient(app)
+    client.post("/api/auth/forgot", json={"email": "ada@example.com"})
+    token = _token_from(mail[0]["text"])
+
+    assert "at least 8" in client.post(
+        "/reset", data={"token": token, "password": "short", "confirm": "short"}
+    ).text.lower()
+
+    assert "Password changed" in client.post(
+        "/reset", data={"token": token, "password": "long enough now", "confirm": "long enough now"}
+    ).text
+
+
+def test_the_form_asks_for_confirmation(mail):
+    auth.register("ada@example.com", "a password")
+    client = TestClient(app)
+    client.post("/api/auth/forgot", json={"email": "ada@example.com"})
+    body = client.get(f"/reset?token={_token_from(mail[0]['text'])}").text
+
+    assert 'name="password"' in body
+    assert 'name="confirm"' in body

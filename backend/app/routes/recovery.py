@@ -89,20 +89,78 @@ def forgot(payload: ForgotIn, request: Request) -> dict:
         ) from exc
     email_tokens.record_mail_request(email, client_ip)
 
-    # A Google-only account has no password to reset. Still the same answer:
-    # saying "that one uses Google" would confirm the address is registered.
-    if not auth.has_password(email):
-        return same_answer
-
+    # Something is always sent, and only the content differs. The HTTP response
+    # stays identical either way, so the endpoint still reveals nothing — but
+    # nobody is left staring at an inbox that will never receive anything.
+    #
+    # The case that forced this: an account created through Google has no
+    # password, so the old version sent nothing and said "check your email".
+    # Someone who had forgotten they used Google would wait forever for a
+    # message that was never coming.
+    #
+    # Only the person who can read the inbox learns which case they are in,
+    # which is the property worth protecting. The mail quota check above bounds
+    # the cost at five per address an hour, so this cannot be used to flood
+    # somebody or burn the sending allowance.
     try:
-        _send_reset(email)
+        if auth.has_password(email):
+            _send_reset(email)
+        elif auth.account_exists(email):
+            _send_google_only_notice(email)
+        else:
+            _send_no_account_notice(email)
     except mailer.MailFailed as exc:
         # Logged, not surfaced. The failure is ours, and the response must stay
-        # identical to the unknown-address case.
+        # identical in every case.
         log.error("reset email failed for %s: %s", email, exc)
 
     return same_answer
 
+
+def _send_google_only_notice(email: str) -> None:
+    """For an account that only ever signs in with Google.
+
+    There is no password to reset, and saying so in the HTTP response would
+    confirm the address is registered. Saying it in the inbox tells only the
+    person who owns it.
+    """
+    mailer.send(
+        email,
+        "Your Carrel account uses Google sign-in",
+        text=(
+            "Somebody asked to reset the password for this Carrel account.\n\n"
+            "This account has no password — it signs in with Google. Open Carrel "
+            'and tap "Continue with Google" instead.\n\n'
+            "If this was not you, nothing has changed and there is nothing to do.\n"
+        ),
+        html=(
+            "<p>Somebody asked to reset the password for this Carrel account.</p>"
+            "<p>This account has no password — it signs in with Google. Open Carrel "
+            'and tap <strong>Continue with Google</strong> instead.</p>'
+            "<p>If this was not you, nothing has changed and there is nothing to do.</p>"
+        ),
+    )
+
+
+def _send_no_account_notice(email: str) -> None:
+    """For an address with no account at all.
+
+    Worth sending rather than staying silent: somebody who mistyped their
+    address, or used a different one to sign up, otherwise waits for a message
+    that is never coming and concludes the app is broken.
+    """
+    mailer.send(
+        email,
+        "No Carrel account for this address",
+        text=(
+            "Somebody asked to reset a Carrel password for this email address, "
+            "but there is no Carrel account here.\n\n"
+            "If that was you, check whether you signed up with a different "
+            "address — or create an account in the app.\n\n"
+            "If it was not you, you can ignore this. Nothing has been created "
+            "or changed.\n"
+        ),
+    )
 
 def _client_ip(request: Request) -> str:
     forwarded = request.headers.get("x-forwarded-for", "")
@@ -138,19 +196,23 @@ def _page(title: str, body: str) -> HTMLResponse:
     )
 
 
-@router.get("/reset", response_class=HTMLResponse)
-def reset_form(token: str = "") -> HTMLResponse:
-    """The form. Deliberately does NOT spend the token — see the module docstring."""
-    if not token:
-        return _page("Link not valid", "<p class='bad'>That link is missing its token.</p>")
+def _reset_form_page(token: str, error: str = "") -> HTMLResponse:
+    """The form, optionally carrying an error from a rejected attempt.
 
+    The token is passed straight back through, unspent, so a typo costs a
+    retry rather than a whole new email.
+    """
+    problem = f"<p class='bad'>{escape(error)}</p>" if error else ""
     return _page(
         "Choose a new password",
-        f"""<form method="post" action="/reset">
+        f"""{problem}<form method="post" action="/reset">
 <input type="hidden" name="token" value="{escape(token)}">
 <label for="password">New password</label>
 <input id="password" name="password" type="password" minlength="8" required
        autocomplete="new-password" placeholder="At least 8 characters">
+<label for="confirm">Confirm new password</label>
+<input id="confirm" name="confirm" type="password" minlength="8" required
+       autocomplete="new-password" placeholder="Type it again">
 <button type="submit">Set password</button>
 </form>
 <p class="note">This link works once and expires an hour after it was sent.
@@ -158,8 +220,28 @@ Setting a new password signs out every device.</p>""",
     )
 
 
+@router.get("/reset", response_class=HTMLResponse)
+def reset_form(token: str = "") -> HTMLResponse:
+    """The form. Deliberately does NOT spend the token — see the module docstring."""
+    if not token:
+        return _page("Link not valid", "<p class='bad'>That link is missing its token.</p>")
+    return _reset_form_page(token)
+
+
 @router.post("/reset", response_class=HTMLResponse)
-def reset_submit(token: str = Form(""), password: str = Form("")) -> HTMLResponse:
+def reset_submit(
+    token: str = Form(""), password: str = Form(""), confirm: str = Form("")
+) -> HTMLResponse:
+    # Everything that can be judged without the token is judged first, and the
+    # form comes back with the token intact. Spending it on a mistyped password
+    # would mean a typo costs another email — and worse, the earlier version
+    # could leave somebody holding an account whose password they had just
+    # mistyped twice and could no longer change.
+    if len(password) < 8:
+        return _reset_form_page(token, "Use at least 8 characters.")
+    if password != confirm:
+        return _reset_form_page(token, "Those two passwords do not match.")
+
     email = email_tokens.consume(token, email_tokens.RESET)
     if email is None:
         return _page(
@@ -171,8 +253,9 @@ def reset_submit(token: str = Form(""), password: str = Form("")) -> HTMLRespons
     try:
         auth.set_password(email, password)
     except ValueError as exc:
-        # The token is spent by now, so send them back for a fresh one rather
-        # than leaving them on a form whose token no longer works.
+        # Only reachable if the rules here and in auth diverge; the token is
+        # spent by this point, so send them for a fresh link rather than to a
+        # form that can no longer work.
         return _page(
             "Password not accepted",
             f"<p class='bad'>{escape(str(exc))}</p>"
