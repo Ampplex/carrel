@@ -26,6 +26,7 @@ from app.config import settings
 
 settings.require_api_key()
 
+import logging  # noqa: E402
 from typing import Any  # noqa: E402
 
 from reeve.tools import (  # noqa: E402
@@ -37,9 +38,56 @@ from reeve.tools import (  # noqa: E402
     store_memory,
 )
 
+log = logging.getLogger("carrel.reeve")
+
+
+def _is_dead_session(exc: BaseException) -> bool:
+    """Did this fail because our SSE session no longer exists on the server?
+
+    Reeve's transport keeps a long-lived SSE session and posts each call to
+    /messages/?session_id=... . When the server restarts — a deploy, a reboot —
+    every session it knew about is gone, and that URL starts answering 404. The
+    SDK reconnects when a session expires from *idleness*, but a server that
+    went away underneath a perfectly healthy session is a different case, and it
+    left this app returning "Reeve returned an error" to every request until
+    somebody restarted it by hand.
+    """
+    response = getattr(exc, "response", None)
+    return getattr(response, "status_code", None) == 404
+
+
+def _reconnect() -> None:
+    """Drop the cached client so the next call performs a fresh handshake.
+
+    `reset_client_cache` is the SDK's own supported way to do this — it closes
+    each cached client and empties the cache, and exists for "tests and identity
+    switches". A dead session is the same need: throw away the connection and
+    let the next call build a new one.
+    """
+    from reeve.tools import reset_client_cache
+
+    reset_client_cache()
+
+
+def _retrying(call, *args, **kwargs):
+    """Run a Reeve call, re-handshaking once if the session turned out to be dead.
+
+    Exactly one retry. If the second attempt fails the same way, the problem is
+    not a stale session and pretending otherwise would turn a clear error into a
+    slow one.
+    """
+    try:
+        return call(*args, **kwargs)
+    except Exception as exc:  # noqa: BLE001 - the SDK raises requests' HTTPError
+        if not _is_dead_session(exc):
+            raise
+        log.info("reeve session was gone (404); reconnecting and retrying once")
+        _reconnect()
+        return call(*args, **kwargs)
+
 
 def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
-    return _get_client().call_tool(name, arguments)
+    return _retrying(lambda: _get_client().call_tool(name, arguments))
 
 
 # ── Writes (free — they do not count against the query quota) ────────────────
@@ -47,7 +95,7 @@ def _call_tool(name: str, arguments: dict[str, Any]) -> Any:
 
 def store_note(text: str, namespace: str) -> dict[str, Any]:
     """Store a text memory. Returns immediately with a pending pointer."""
-    return store_memory(text, speaker=namespace)
+    return _retrying(store_memory, text, speaker=namespace)
 
 
 def store_photo(caption: str, image_base64: str, media_type: str, namespace: str) -> dict[str, Any]:
@@ -57,7 +105,8 @@ def store_photo(caption: str, image_base64: str, media_type: str, namespace: str
     the pair, and retains the original — which is what makes it possible to ask
     a question later that nobody anticipated when the caption was written.
     """
-    return store_memory(
+    return _retrying(
+        store_memory,
         caption,
         speaker=namespace,
         image_base64=image_base64,
@@ -70,7 +119,7 @@ def store_photo(caption: str, image_base64: str, media_type: str, namespace: str
 
 def ask(question: str, namespace: str) -> str:
     """Narrated answer."""
-    return query_memory(question, speaker=namespace)
+    return _retrying(query_memory, question, speaker=namespace)
 
 
 def context(question: str, namespace: str) -> str:
@@ -79,7 +128,7 @@ def context(question: str, namespace: str) -> str:
     Where the `(superseded)` markers and the pending-write block live, so it is
     the evidence the UI shows when a claim needs proving.
     """
-    return retrieve_memory_context(question, speaker=namespace)
+    return _retrying(retrieve_memory_context, question, speaker=namespace)
 
 
 def ask_with_photo(question: str, image_base64: str, media_type: str, namespace: str) -> str:
@@ -98,7 +147,7 @@ def ask_with_photo(question: str, image_base64: str, media_type: str, namespace:
 
 def search_photos(query: str, namespace: str) -> str:
     """Text-to-image search. Bypasses the image lane's admission gate."""
-    return search_image_memories(query=query, speaker=namespace)
+    return _retrying(search_image_memories, query=query, speaker=namespace)
 
 
 def search_photos_by_image(image_base64: str, media_type: str, namespace: str) -> str:
@@ -119,7 +168,7 @@ def search_photos_by_image(image_base64: str, media_type: str, namespace: str) -
 
 def config() -> dict[str, Any]:
     """Live capability report — account-wide, so it takes no namespace."""
-    return memory_config()
+    return _retrying(memory_config)
 
 
 def warm() -> dict[str, Any]:
@@ -130,7 +179,7 @@ def warm() -> dict[str, Any]:
     in the app's lifespan sidesteps that and keeps the handshake latency out of
     the first answer.
     """
-    return memory_config()
+    return _retrying(memory_config)
 
 
 def erase(namespace: str) -> dict[str, Any]:
