@@ -28,7 +28,7 @@ from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from app import auth, deliverability, email_tokens, mailer
+from app import auth, bounces, deliverability, email_tokens, mailer
 from app.config import settings
 
 router = APIRouter()
@@ -66,7 +66,14 @@ def forgot(payload: ForgotIn, request: Request) -> dict:
     email = payload.email.strip().lower()
     same_answer = {
         "ok": True,
-        "message": "If there is an account with that address, a reset link is on its way.",
+        # Says what was done, and what to do when nothing arrives. Whether a
+        # mailbox exists cannot be checked before sending, so the message must
+        # not promise delivery it cannot know about.
+        "message": (
+            "If that address can receive mail, we have sent it something. "
+            "Nothing after a few minutes usually means a typo — check the "
+            "spelling and try again."
+        ),
     }
 
     # Input validation, not account lookup. Whether a domain has a mail server
@@ -82,6 +89,18 @@ def forgot(payload: ForgotIn, request: Request) -> dict:
         raise HTTPException(
             status_code=400,
             detail=f"No mail server found for {domain}. Check the spelling and try again.",
+        )
+
+    # The provider told us this one is dead, after some earlier attempt. That is
+    # deliverability, not account state — the same category as a domain with no
+    # mail server — so it can be said plainly.
+    if bounces.has_bounced(email):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Mail to that address bounced last time. Check the spelling, "
+                "or use a different address."
+            ),
         )
 
     if not mailer.configured():
@@ -338,3 +357,39 @@ def verify(token: str = "") -> HTMLResponse:
 
     auth.mark_email_verified(email)
     return _page("Email confirmed", "<p>Thanks — this address is confirmed.</p>")
+
+
+@router.post("/api/hooks/brevo/{secret}")
+async def brevo_webhook(secret: str, request: Request) -> dict:
+    """Where the mail provider reports what happened to a message.
+
+    Authenticated by a secret in the path, because Brevo's webhooks carry no
+    signature. It is a bearer credential in a URL, which is not lovely — but the
+    endpoint only accepts event reports about addresses, and the alternative is
+    an open endpoint anybody can use to mark somebody else's address dead.
+
+    Unknown or transient events are ignored on purpose. A full mailbox says
+    nothing lasting about an address, and refusing it forever on one bad day
+    would be worse than the silence this is fixing.
+    """
+    if not settings.brevo_webhook_secret or secret != settings.brevo_webhook_secret:
+        # 404, not 403: an endpoint that admits it exists invites guessing.
+        raise HTTPException(status_code=404, detail="Not found.")
+
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001 - a malformed body is not our problem
+        return {"ok": True}
+
+    event = str(payload.get("event", "")).lower()
+    email = str(payload.get("email", "")).strip().lower()
+    if not email:
+        return {"ok": True}
+
+    if event in bounces.PERMANENT_EVENTS:
+        bounces.record(email, reason=event)
+    elif event in ("delivered", "request"):
+        # It arrived. Whatever went wrong before has stopped being true.
+        bounces.clear(email)
+
+    return {"ok": True}

@@ -36,6 +36,20 @@ def mail(monkeypatch):
     return sent
 
 
+@pytest.fixture
+def webhook_secret():
+    """Settings is a frozen dataclass, so monkeypatch cannot assign to it —
+    frozen on purpose, since configuration changing under a running server is a
+    class of bug nobody enjoys. Tests reach past it deliberately and put it back.
+    """
+    from app.config import settings
+
+    previous = settings.brevo_webhook_secret
+    object.__setattr__(settings, "brevo_webhook_secret", "the-real-secret")
+    yield "the-real-secret"
+    object.__setattr__(settings, "brevo_webhook_secret", previous)
+
+
 def _token_from(email_text: str) -> str:
     for word in email_text.split():
         if "token=" in word:
@@ -404,3 +418,83 @@ def test_reset_pages_forbid_referrer_leakage(mail):
 
     assert response.headers["referrer-policy"] == "no-referrer"
     assert response.headers["cache-control"] == "no-store"
+
+
+def test_an_address_that_bounced_before_is_refused_plainly(mail):
+    """The case no synchronous check can catch.
+
+    `gmail.com` resolves, so a typo before the @ passes everything available at
+    request time — the message is accepted, attempted, and rejected seconds
+    later. The provider tells us, just too late to answer the request that
+    caused it. So the first attempt is silent and every one after it is not.
+    """
+    from app import bounces
+
+    client = TestClient(app)
+    first = client.post("/api/auth/forgot", json={"email": "no-such-person-88xyz@gmail.com"})
+    assert first.status_code == 200  # nothing knowable yet
+
+    bounces.record("no-such-person-88xyz@gmail.com", reason="hard_bounce")
+
+    second = client.post("/api/auth/forgot", json={"email": "no-such-person-88xyz@gmail.com"})
+    assert second.status_code == 400
+    assert "bounced" in second.json()["detail"].lower()
+
+
+def test_a_recovered_address_is_forgiven(mail):
+    """A full mailbox or a briefly broken domain must not blacklist somebody
+    forever on the strength of one bad day."""
+    from app import bounces
+
+    bounces.record("ada@example.com", reason="hard_bounce")
+    assert bounces.has_bounced("ada@example.com")
+
+    bounces.clear("ada@example.com")
+
+    auth.register("ada@example.com", "a password")
+    assert TestClient(app).post(
+        "/api/auth/forgot", json={"email": "ada@example.com"}
+    ).status_code == 200
+
+
+def test_the_bounce_webhook_needs_the_secret(webhook_secret):
+    """Otherwise it is an open endpoint for marking anybody's address dead."""
+    client = TestClient(app)
+
+    wrong = client.post(
+        "/api/hooks/brevo/guessed", json={"event": "hard_bounce", "email": "victim@example.com"}
+    )
+    assert wrong.status_code == 404, "and 404 rather than 403, so it does not confirm it exists"
+
+    from app import bounces
+
+    assert not bounces.has_bounced("victim@example.com")
+
+
+def test_the_bounce_webhook_records_and_clears(webhook_secret):
+    from app import bounces
+
+    client = TestClient(app)
+
+    client.post(
+        "/api/hooks/brevo/the-real-secret",
+        json={"event": "hard_bounce", "email": "dead@example.com"},
+    )
+    assert bounces.has_bounced("dead@example.com")
+
+    client.post(
+        "/api/hooks/brevo/the-real-secret",
+        json={"event": "delivered", "email": "dead@example.com"},
+    )
+    assert not bounces.has_bounced("dead@example.com")
+
+
+def test_transient_events_are_ignored(webhook_secret):
+    """A deferred message or a full mailbox says nothing lasting."""
+    from app import bounces
+
+    TestClient(app).post(
+        "/api/hooks/brevo/the-real-secret",
+        json={"event": "soft_bounce", "email": "busy@example.com"},
+    )
+    assert not bounces.has_bounced("busy@example.com")

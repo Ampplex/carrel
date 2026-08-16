@@ -186,6 +186,21 @@ CREATE TABLE IF NOT EXISTS email_tokens (
 );
 CREATE INDEX IF NOT EXISTS email_tokens_email_idx ON email_tokens (email, purpose);
 
+-- Addresses the mail provider has told us are undeliverable.
+--
+-- Whether a *mailbox* exists cannot be known at request time by anyone: the
+-- only synchronous test is an SMTP probe, which is blocked, treated as abuse,
+-- and — because it distinguishes real addresses from fake ones — is itself the
+-- enumeration tool this whole flow exists to avoid.
+--
+-- So the answer arrives afterwards, as a bounce, and is remembered. The first
+-- attempt on a mistyped address is silent; every later one says so.
+CREATE TABLE IF NOT EXISTS bounced_addresses (
+    email      TEXT PRIMARY KEY,
+    reason     TEXT NOT NULL DEFAULT '',
+    bounced_at DOUBLE PRECISION NOT NULL
+);
+
 -- Columns added after a table first shipped.
 --
 -- CREATE TABLE IF NOT EXISTS does NOT reconcile columns: once the table exists

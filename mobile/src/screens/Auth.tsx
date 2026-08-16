@@ -33,7 +33,12 @@ import { theme as t } from "../theme";
 import { Legal, LegalTab } from "./Legal";
 
 export function Auth({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
-  const [mode, setMode] = useState<"in" | "up">("up");
+  // Signing in, not signing up. Somebody creates an account once and signs in
+  // for the rest of the app's life, so opening on the sign-up form makes the
+  // common case the one that needs an extra tap — and worse, invites people
+  // who already have an account to try creating a second one and be told the
+  // address is taken.
+  const [mode, setMode] = useState<"in" | "up">("in");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

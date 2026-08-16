@@ -78,6 +78,11 @@ class Settings:
     # Where the links in those emails point. Must be the public origin, not the
     # container's own address: a reset link to 127.0.0.1 is a broken link in
     # somebody's inbox.
+    # Shared secret in the webhook path. Empty means the endpoint 404s, so an
+    # unconfigured deployment cannot be fed fake bounce reports.
+    brevo_webhook_secret: str = field(
+        default_factory=lambda: os.environ.get("BREVO_WEBHOOK_SECRET", "").strip(), repr=False
+    )
     public_base_url: str = field(
         default_factory=lambda: os.environ.get(
             "CARREL_PUBLIC_BASE_URL", "https://carrel.reeve.co.in"
