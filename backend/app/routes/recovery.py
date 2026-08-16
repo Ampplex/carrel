@@ -69,6 +69,21 @@ def forgot(payload: ForgotIn, request: Request) -> dict:
         "message": "If there is an account with that address, a reset link is on its way.",
     }
 
+    # Input validation, not account lookup. Whether a domain has a mail server
+    # is public — anybody can run the same query — so saying so leaks nothing
+    # about who has an account here. And the alternative is worse than a leak:
+    # the neutral "check your email" was being shown to somebody who had
+    # mistyped their own domain, and no message was ever coming, because there
+    # was nowhere to send one. A typo is the most common reason to end up here.
+    if not deliverability.looks_like_an_address(email):
+        raise HTTPException(status_code=400, detail="That does not look like an email address.")
+    if not deliverability.domain_can_receive_mail(email):
+        domain = email.rpartition("@")[2]
+        raise HTTPException(
+            status_code=400,
+            detail=f"No mail server found for {domain}. Check the spelling and try again.",
+        )
+
     if not mailer.configured():
         # Honest rather than silently pretending. Telling somebody to check an
         # inbox that will never receive anything is the worst of both worlds.
@@ -107,11 +122,9 @@ def forgot(payload: ForgotIn, request: Request) -> dict:
             _send_reset(email)
         elif auth.account_exists(email):
             _send_google_only_notice(email)
-        elif deliverability.worth_sending_to(email):
-            # Only the no-account courtesy note is gated on this. An address
-            # with an account has already received mail from us, so it is known
-            # good; refusing to send its reset link because a DNS lookup
-            # stuttered would lock somebody out to protect a bounce rate.
+        else:
+            # Deliverability was already established above, so this cannot turn
+            # into a hard bounce.
             _send_no_account_notice(email)
     except mailer.MailFailed as exc:
         # Logged, not surfaced. The failure is ours, and the response must stay

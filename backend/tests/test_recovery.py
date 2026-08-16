@@ -296,6 +296,29 @@ def test_the_form_asks_for_confirmation(mail):
     assert 'name="confirm"' in body
 
 
+def test_an_undeliverable_address_is_reported_rather_than_swallowed(mail):
+    """The bug this fixes was visible on the phone: type a mistyped domain, get
+    "check your email", and wait forever — nothing had been sent, because there
+    was nowhere to send it.
+
+    Saying so leaks nothing. Whether a domain has a mail server is public; it
+    says nothing about who has an account here.
+    """
+    client = TestClient(app)
+
+    broken = client.post("/api/auth/forgot", json={"email": "not-an-email"})
+    assert broken.status_code == 400
+    assert "email address" in broken.json()["detail"]
+
+    dead = client.post(
+        "/api/auth/forgot", json={"email": "nobody@qwerty-not-a-real-domain-8842.com"}
+    )
+    assert dead.status_code == 400
+    assert "qwerty-not-a-real-domain-8842.com" in dead.json()["detail"]
+
+    assert mail == []
+
+
 def test_garbage_addresses_are_not_handed_to_the_mail_provider(mail, monkeypatch):
     """Two costs, both avoidable.
 
@@ -308,7 +331,7 @@ def test_garbage_addresses_are_not_handed_to_the_mail_provider(mail, monkeypatch
     client = TestClient(app)
 
     for address in ("not-an-email", "someone@this-domain-does-not-exist-9x7q.invalid"):
-        assert client.post("/api/auth/forgot", json={"email": address}).status_code == 200
+        assert client.post("/api/auth/forgot", json={"email": address}).status_code == 400
 
     assert mail == [], f"nothing should have been sent, got {[m['to'] for m in mail]}"
 
