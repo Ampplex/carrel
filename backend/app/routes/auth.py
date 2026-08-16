@@ -8,7 +8,7 @@ someone else's.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app import auth, google_auth
@@ -50,10 +50,34 @@ def register(payload: Credentials) -> Session:
     )
 
 
+def _client_ip(request: Request) -> str:
+    """The caller's address, as far as it can be trusted.
+
+    nginx sets X-Forwarded-For and is the only thing that can reach this app —
+    the container publishes on 127.0.0.1 and the firewall allows 22/80/443 — so
+    the left-most entry is what nginx saw. If this app were ever exposed
+    directly, the header would be attacker-controlled and this would have to
+    stop trusting it.
+    """
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()[:45]
+    return request.client.host if request.client else ""
+
+
 @router.post("/api/auth/login", response_model=Session)
-def login(payload: Credentials) -> Session:
+def login(payload: Credentials, request: Request) -> Session:
     try:
-        result = auth.login(payload.email, payload.password)
+        result = auth.login(payload.email, payload.password, _client_ip(request))
+    except auth.RateLimited as exc:
+        # 429, not 401. A client that cannot tell "wrong password" from "stop
+        # asking" will keep asking, and a person who cannot tell will keep
+        # retyping a password that was right all along.
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+            headers={"Retry-After": str(exc.retry_after)},
+        ) from exc
     except ValueError as exc:
         # 401 rather than 400: the credentials were well-formed and rejected.
         raise HTTPException(status_code=401, detail=str(exc)) from exc

@@ -141,6 +141,21 @@ CREATE TABLE IF NOT EXISTS pending_writes (
 );
 CREATE INDEX IF NOT EXISTS pending_namespace_idx ON pending_writes (namespace, created_at DESC);
 
+-- Failed sign-in attempts, for rate limiting.
+--
+-- In Postgres rather than process memory for the same reason the settling tray
+-- moved: a restart would empty it, and "restart the process" is not a barrier
+-- to somebody guessing passwords. Only failures are recorded — a successful
+-- sign-in is not evidence of anything worth throttling.
+CREATE TABLE IF NOT EXISTS login_failures (
+    id          BIGSERIAL PRIMARY KEY,
+    email       TEXT NOT NULL,
+    client_ip   TEXT NOT NULL DEFAULT '',
+    at          DOUBLE PRECISION NOT NULL
+);
+CREATE INDEX IF NOT EXISTS login_failures_email_idx ON login_failures (email, at DESC);
+CREATE INDEX IF NOT EXISTS login_failures_ip_idx ON login_failures (client_ip, at DESC);
+
 -- Columns added after a table first shipped.
 --
 -- CREATE TABLE IF NOT EXISTS does NOT reconcile columns: once the table exists

@@ -13,10 +13,10 @@ either happen or not, and the session foreign key means deleting an account
 cannot leave a working token behind — that used to be application code
 remembering to do the right thing.
 
-What this is still NOT: email verification, password reset, or rate limiting on
-login. Those matter for a product with real users and are listed in the README
-as missing rather than half-implemented here, because a half-built auth flow is
-worse than an obviously minimal one.
+Sign-in is rate limited (see below). What this is still NOT: email verification
+or password reset. Those matter for a product with real users and are listed in
+the README as missing rather than half-implemented here, because a half-built
+auth flow is worse than an obviously minimal one.
 """
 
 from __future__ import annotations
@@ -41,6 +41,63 @@ _SCRYPT_P = 1
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 30  # a month; this is a notebook, not a bank
+
+# Rate limiting on sign-in.
+#
+# scrypt makes each guess cost about a tenth of a second, which is a real
+# barrier to an offline attack on a stolen hash and no barrier at all to an
+# online one: a script can still try tens of thousands of passwords a day
+# against a public endpoint, and this endpoint has been public and unprotected
+# since the subdomain went live — scanners found it within minutes.
+#
+# Two limits, because they stop different things. Per-email stops somebody
+# grinding one account from many addresses. Per-IP stops one host spraying a
+# common password across many accounts, which per-email limits never see.
+RATE_WINDOW_SECONDS = 15 * 60
+MAX_FAILURES_PER_EMAIL = 10
+MAX_FAILURES_PER_IP = 30
+
+
+class RateLimited(Exception):
+    """Too many recent failures. Deliberately not a ValueError: the route has to
+    answer 429 rather than 401, or a client cannot tell 'wrong password' from
+    'stop asking'."""
+
+    def __init__(self, retry_after: int):
+        super().__init__("Too many sign-in attempts. Try again in a few minutes.")
+        self.retry_after = retry_after
+
+
+def _record_failure(email: str, client_ip: str) -> None:
+    now = time.time()
+    with cursor(commit=True) as cur:
+        cur.execute(
+            "INSERT INTO login_failures (email, client_ip, at) VALUES (%s, %s, %s)",
+            (email, client_ip, now),
+        )
+        # Swept here rather than by a cron: this table is only ever written on
+        # failure, so the write path is the natural place to keep it small.
+        cur.execute("DELETE FROM login_failures WHERE at < %s", (now - RATE_WINDOW_SECONDS * 4,))
+
+
+def _check_rate_limit(email: str, client_ip: str) -> None:
+    since = time.time() - RATE_WINDOW_SECONDS
+    with cursor() as cur:
+        cur.execute(
+            "SELECT count(*) AS n FROM login_failures WHERE email = %s AND at > %s",
+            (email, since),
+        )
+        by_email = cur.fetchone()["n"]
+        by_ip = 0
+        if client_ip:
+            cur.execute(
+                "SELECT count(*) AS n FROM login_failures WHERE client_ip = %s AND at > %s",
+                (client_ip, since),
+            )
+            by_ip = cur.fetchone()["n"]
+
+    if by_email >= MAX_FAILURES_PER_EMAIL or by_ip >= MAX_FAILURES_PER_IP:
+        raise RateLimited(retry_after=RATE_WINDOW_SECONDS)
 
 
 def _hash(password: str, salt: bytes) -> str:
@@ -98,8 +155,14 @@ def register(email: str, password: str, name: str = "", terms_version: str = "")
     return _issue(email)
 
 
-def login(email: str, password: str) -> dict:
+def login(email: str, password: str, client_ip: str = "") -> dict:
     email = (email or "").strip().lower()
+
+    # Checked before any work is done, including the decoy hash below. A limiter
+    # that still spends a tenth of a second per rejected attempt is a denial of
+    # service against the server rather than against the attacker.
+    _check_rate_limit(email, client_ip)
+
     with cursor() as cur:
         user = _get_user(cur, email)
 
@@ -107,6 +170,7 @@ def login(email: str, password: str) -> dict:
     # response cannot be used to enumerate who has signed up.
     if user is None:
         _hash(password or "", secrets.token_bytes(16))
+        _record_failure(email, client_ip)
         raise ValueError("Email or password is wrong.")
 
     # An account created through Google has no password at all. Saying "that one
@@ -115,10 +179,12 @@ def login(email: str, password: str) -> dict:
     # way: there is no password, so no password can be right.
     if not user.get("password_hash") or not user.get("salt"):
         _hash(password or "", secrets.token_bytes(16))
+        _record_failure(email, client_ip)
         raise ValueError("Email or password is wrong.")
 
     actual = _hash(password or "", bytes.fromhex(user["salt"]))
     if not hmac.compare_digest(user["password_hash"], actual):
+        _record_failure(email, client_ip)
         raise ValueError("Email or password is wrong.")
 
     return _issue(email)

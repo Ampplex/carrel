@@ -66,7 +66,8 @@ def _clean_database():
     db.init_schema()
     with db.cursor(commit=True) as cur:
         cur.execute(
-            "TRUNCATE users, sessions, chats, messages, photos, pending_writes"
+            "TRUNCATE users, sessions, chats, messages, photos, pending_writes,"
+            " login_failures"
             " RESTART IDENTITY CASCADE"
         )
     yield
