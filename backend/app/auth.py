@@ -219,6 +219,36 @@ def sign_in_with_google(
 
     now = time.time()
     with cursor(commit=True) as cur:
+        # Does this address already carry a password nobody ever proved they own?
+        #
+        # Carrel does not verify addresses at registration, so anybody can sign
+        # up as anybody. Google has just proved ownership of this address; the
+        # password holder never did. So the password loses: it is cleared and
+        # every existing session is revoked, which evicts whoever set it.
+        #
+        # Without this, somebody could register with an address they do not own
+        # and wait. The real owner's first Google sign-in would join that same
+        # account — same email, same namespace — handing the impostor a live
+        # password to it, and to everything written into it afterwards.
+        #
+        # The cost falls on honest users too: set a password, sign in with
+        # Google once, and the password stops working. Google still signs you
+        # in, which is the trade — an inconvenience in the honest case against a
+        # silent takeover in the dishonest one. Verifying addresses at
+        # registration removes the trade entirely, and needs a mail sender this
+        # deployment does not have.
+        cur.execute(
+            "SELECT 1 FROM users WHERE email = %s AND password_hash IS NOT NULL",
+            (email,),
+        )
+        password_revoked = cur.fetchone() is not None
+        if password_revoked:
+            cur.execute(
+                "UPDATE users SET salt = NULL, password_hash = NULL WHERE email = %s",
+                (email,),
+            )
+            cur.execute("DELETE FROM sessions WHERE email = %s", (email,))
+
         cur.execute(
             """
             INSERT INTO users (email, name, namespace, google_sub, avatar_url,
@@ -243,7 +273,13 @@ def sign_in_with_google(
                 now,
             ),
         )
-    return _issue(email)
+
+    session = _issue(email)
+    # Reported so the client can explain why a password stopped working. A
+    # password that silently stops working reads as a bug, and arrives as a
+    # support message rather than as the security measure it is.
+    session["password_revoked"] = password_revoked
+    return session
 
 
 def _issue(email: str) -> dict:

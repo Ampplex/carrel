@@ -187,12 +187,32 @@ def test_google_links_to_an_existing_password_account():
     assert _count_users() == 1
 
 
-def test_linking_does_not_destroy_the_password():
-    auth.register("both@example.com", "a good password", "Chosen Name")
-    auth.sign_in_with_google("both@example.com", "Google Name", "sub-9")
+def test_linking_revokes_the_password_and_keeps_the_chosen_name():
+    """This reverses an earlier decision, deliberately.
 
-    # Still signs in the original way, and keeps the name they chose here.
-    assert auth.login("both@example.com", "a good password")["name"] == "Chosen Name"
+    It used to assert that linking left the password working, on the reasoning
+    that somebody who set one should keep both ways in. That reasoning assumed
+    the password belonged to the same person as the Google account, and nothing
+    here establishes that: addresses are never verified at registration, so a
+    password on an address proves only that somebody typed it.
+
+    Google proves ownership. An unverified password does not. When they
+    disagree, the password is the one to drop — otherwise an impostor who
+    registered someone else's address keeps a working key to the account its
+    real owner is now filling with memories.
+
+    What survives linking is the name they chose here, which was the other half
+    of the original test and is still right: Google's display name must not
+    overwrite a name somebody set deliberately.
+    """
+    auth.register("both@example.com", "a good password", "Chosen Name")
+    session = auth.sign_in_with_google("both@example.com", "Google Name", "sub-9")
+
+    assert session["name"] == "Chosen Name"
+    assert session["password_revoked"] is True
+
+    with pytest.raises(ValueError):
+        auth.login("both@example.com", "a good password")
 
 
 def test_a_google_only_account_cannot_be_password_guessed():

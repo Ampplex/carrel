@@ -29,6 +29,10 @@ class Session(BaseModel):
     token: str
     email: str
     name: str
+    # True when a Google sign-in cleared a password that had been set on this
+    # address. The client says so, because a password that stops working
+    # without explanation reads as a bug and generates a support message.
+    password_revoked: bool = False
     # Google-hosted, empty for password accounts. The client renders it; the
     # server never fetches or stores the image itself.
     avatar_url: str = ""
@@ -124,6 +128,7 @@ def google_sign_in(payload: GoogleIn) -> Session:
         email=result["email"],
         name=result["name"],
         avatar_url=result.get("avatar_url", ""),
+        password_revoked=result.get("password_revoked", False),
     )
 
 

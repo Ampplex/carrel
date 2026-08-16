@@ -28,6 +28,11 @@ services:
       timeout: 5s
       retries: 5
     shm_size: 128mb
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     # Tuned down: this box has about a gigabyte free and is already running
     # something that matters more than Carrel.
     command: >
@@ -51,6 +56,23 @@ services:
     # the MCP server down with it, and that is the failure worth preventing.
     mem_limit: 512m
     cpus: 1.0
+    # Docker's default log driver grows without limit. On a 6GB volume shared
+    # with a production MCP server, an unbounded log file is a slow outage for
+    # something that is not even this service.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      # Hits the endpoint that actually touches the database, so an API that is
+      # listening but cannot serve anything is reported as unhealthy rather than
+      # as up.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8010/api/health', timeout=5).status==200 else 1)\""]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   carrel-db-data:
