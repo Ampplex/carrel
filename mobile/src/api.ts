@@ -17,13 +17,17 @@ import { SaveFormat, manipulateAsync } from "expo-image-manipulator";
 import { LEGAL_VERSION } from "./legal";
 
 /**
- * Your laptop's LAN address — `ipconfig getifaddr en0`.
+ * Where the API lives.
  *
- * If nothing loads, check this first: phone and laptop on the same wifi, and
- * the backend started with `--host 0.0.0.0` rather than the default
- * loopback-only bind.
+ * This was a LAN address for most of the project's life, which meant the app
+ * only worked in one flat with one laptop awake. It is a real host now: TLS,
+ * a certificate that renews itself, and no dependency on this machine.
+ *
+ * Point it back at `http://<your-lan-ip>:8000` to develop against a local
+ * backend — the phone has its own idea of "localhost", so it must be the
+ * laptop's LAN address and the server must bind 0.0.0.0 rather than loopback.
  */
-export const API_BASE = "http://192.168.1.5:8000";
+export const API_BASE = "https://carrel.reeve.co.in";
 
 const TOKEN_KEY = "Carrel.session.token";
 
@@ -191,7 +195,10 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(
       looksOffline ? "unreachable" : "request_failed",
       looksOffline
-        ? `Can't reach Carrel at ${API_BASE}. Same wifi as the laptop?`
+        ? // Was "same wifi as the laptop?", which stopped being true the day
+          // this pointed at a real host. Telling someone to check their wifi
+          // when the server is down sends them to fix the wrong thing.
+          "Can't reach Carrel. Check your connection and try again."
         : `That request failed: ${detail}`,
       0
     );

@@ -27,3 +27,7 @@ dist/
 mobile/.expo/
 mobile/dist/
 .expo/
+
+# Android release signing key — a private key; never committed.
+mobile/android/app/*.keystore
+!mobile/android/app/debug.keystore

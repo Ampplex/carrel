@@ -140,6 +140,20 @@ CREATE TABLE IF NOT EXISTS pending_writes (
     verified_at DOUBLE PRECISION
 );
 CREATE INDEX IF NOT EXISTS pending_namespace_idx ON pending_writes (namespace, created_at DESC);
+
+-- Columns added after a table first shipped.
+--
+-- CREATE TABLE IF NOT EXISTS does NOT reconcile columns: once the table exists
+-- it is a no-op, and a column added to the statement above is silently never
+-- created. That is not theoretical — `pending_id` was added here after the
+-- table had been created, so every note write crashed on INSERT with
+-- UndefinedColumn while the schema file looked perfectly correct.
+--
+-- So every column added from now on needs a line here too. When that becomes
+-- tedious, that is the signal to adopt Alembic rather than to start guessing.
+ALTER TABLE pending_writes ADD COLUMN IF NOT EXISTS pending_id TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT NOT NULL DEFAULT '';
 """
 
 

@@ -48,7 +48,8 @@
           "cameraPermission": "Carrel uses the camera so you can photograph a whiteboard, a slide or a page and ask about it later."
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "./plugins/withReleaseSigning"
     ]
   }
 }
