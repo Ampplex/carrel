@@ -320,6 +320,11 @@ export const api = {
     await setToken(s.token);
     return s;
   },
+  /** Ask for a password reset link. The reply is deliberately identical
+   *  whether or not an account exists, so it can never be used to check. */
+  forgotPassword: (email: string) =>
+    request<{ ok: boolean; message: string }>("/api/auth/forgot", json({ email })),
+
   logout: async (): Promise<void> => {
     try {
       await request("/api/auth/logout", { method: "POST" });

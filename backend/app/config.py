@@ -66,6 +66,24 @@ class Settings:
         default_factory=lambda: os.environ.get("AWS_REGION", "ap-south-1").strip()
     )
 
+    # Email. repr=False on the key for the same reason as everything else here:
+    # a dataclass prints every field into any traceback that touches it.
+    brevo_api_key: str = field(
+        default_factory=lambda: os.environ.get("BREVO_API_KEY", "").strip(), repr=False
+    )
+    mail_from: str = field(default_factory=lambda: os.environ.get("CARREL_MAIL_FROM", "").strip())
+    mail_from_name: str = field(
+        default_factory=lambda: os.environ.get("CARREL_MAIL_FROM_NAME", "Carrel").strip()
+    )
+    # Where the links in those emails point. Must be the public origin, not the
+    # container's own address: a reset link to 127.0.0.1 is a broken link in
+    # somebody's inbox.
+    public_base_url: str = field(
+        default_factory=lambda: os.environ.get(
+            "CARREL_PUBLIC_BASE_URL", "https://carrel.reeve.co.in"
+        ).rstrip("/")
+    )
+
     # Every OAuth client allowed to mint an ID token this server will accept.
     # Plural because Google issues a separate client ID per platform, and the
     # `aud` claim carries whichever one the app was built with — the iOS client

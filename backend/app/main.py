@@ -14,7 +14,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.errors import reeve_error_handler
-from app.routes import account, ask, auth, capture, chats, legal, photos, status
+from app.routes import account, ask, auth, capture, chats, legal, photos, recovery, status
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("Carrel")
@@ -71,6 +71,7 @@ app.add_middleware(
 app.add_exception_handler(Exception, reeve_error_handler)
 
 app.include_router(legal.router)
+app.include_router(recovery.router)
 app.include_router(auth.router)
 app.include_router(account.router)
 app.include_router(chats.router)

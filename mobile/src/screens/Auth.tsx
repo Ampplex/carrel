@@ -16,6 +16,7 @@
 import { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -72,6 +73,28 @@ export function Auth({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  /**
+   * Ask for a reset link.
+   *
+   * The reply is the same whether or not the address has an account — the
+   * server refuses to say, so the app must not imply otherwise. It reports what
+   * was requested, never what was found.
+   */
+  const forgotPassword = async () => {
+    const address = email.trim();
+    if (!address) {
+      setError("Type your email address first, then tap this.");
+      return;
+    }
+    setError(null);
+    try {
+      const result = await api.forgotPassword(address);
+      Alert.alert("Check your email", result.message);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
     }
   };
 
@@ -196,6 +219,14 @@ export function Auth({ onSignedIn }: { onSignedIn: (s: Session) => void }) {
             {signingUp ? "I already have an account" : "Create an account instead"}
           </Text>
         </Pressable>
+
+        {/* Only when signing in. Offering it during sign-up would be asking to
+            reset a password that does not exist yet. */}
+        {!signingUp && (
+          <Pressable onPress={forgotPassword} hitSlop={10} style={s.forgot}>
+            <Text style={s.forgotText}>Forgot password?</Text>
+          </Pressable>
+        )}
       </ScrollView>
 
       <Legal open={legal} onClose={() => setLegal(null)} />
@@ -424,5 +455,7 @@ const s = StyleSheet.create({
   legalDot: { color: t.color.inkTertiary, ...t.text.small },
 
   switch: { alignItems: "center", marginTop: t.space(5) },
+  forgot: { alignItems: "center", paddingVertical: 12 },
+  forgotText: { color: t.color.inkTertiary, ...t.text.small },
   switchText: { color: t.color.accent, ...t.text.label, fontWeight: "500" },
 });

@@ -156,6 +156,36 @@ CREATE TABLE IF NOT EXISTS login_failures (
 CREATE INDEX IF NOT EXISTS login_failures_email_idx ON login_failures (email, at DESC);
 CREATE INDEX IF NOT EXISTS login_failures_ip_idx ON login_failures (client_ip, at DESC);
 
+-- Reset emails asked for, so that endpoint can be throttled on its own counter.
+--
+-- Deliberately NOT the login-failure counter. Sharing it meant somebody locked
+-- out by wrong passwords could not ask for a reset — the exact person who needs
+-- one. What this protects is different too: not password guessing, but flooding
+-- an inbox and spending the mail quota.
+CREATE TABLE IF NOT EXISTS mail_requests (
+    id        BIGSERIAL PRIMARY KEY,
+    email     TEXT NOT NULL,
+    client_ip TEXT NOT NULL DEFAULT '',
+    at        DOUBLE PRECISION NOT NULL
+);
+CREATE INDEX IF NOT EXISTS mail_requests_email_idx ON mail_requests (email, at DESC);
+CREATE INDEX IF NOT EXISTS mail_requests_ip_idx ON mail_requests (client_ip, at DESC);
+
+-- Single-use links sent by email: verification and password reset.
+--
+-- The token is stored HASHED. A reset token is a working credential for an
+-- account until it is used, so a database dump — or a backup, or a stray log —
+-- must not hand out live links. Same reasoning as password hashes, applied to
+-- the thing that can replace a password.
+CREATE TABLE IF NOT EXISTS email_tokens (
+    token_hash TEXT PRIMARY KEY,
+    email      TEXT NOT NULL REFERENCES users(email) ON DELETE CASCADE,
+    purpose    TEXT NOT NULL,
+    created_at DOUBLE PRECISION NOT NULL,
+    used_at    DOUBLE PRECISION
+);
+CREATE INDEX IF NOT EXISTS email_tokens_email_idx ON email_tokens (email, purpose);
+
 -- Columns added after a table first shipped.
 --
 -- CREATE TABLE IF NOT EXISTS does NOT reconcile columns: once the table exists
@@ -169,6 +199,7 @@ CREATE INDEX IF NOT EXISTS login_failures_ip_idx ON login_failures (client_ip, a
 ALTER TABLE pending_writes ADD COLUMN IF NOT EXISTS pending_id TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT NOT NULL DEFAULT '';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
 """
 
 

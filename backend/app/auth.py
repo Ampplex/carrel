@@ -115,6 +115,46 @@ def _namespace_for(email: str) -> str:
     return "u" + hashlib.sha256(email.lower().encode("utf-8")).hexdigest()[:16]
 
 
+def set_password(email: str, password: str) -> bool:
+    """Replace an account's password, used by the reset flow.
+
+    Every existing session is revoked. If somebody is resetting because their
+    account was taken, leaving the intruder's month-long token alive would make
+    the reset theatre.
+    """
+    if len(password or "") < 8:
+        raise ValueError("Use at least 8 characters.")
+
+    salt = secrets.token_bytes(16)
+    with cursor(commit=True) as cur:
+        cur.execute(
+            "UPDATE users SET salt = %s, password_hash = %s WHERE email = %s",
+            (salt.hex(), _hash(password, salt), email),
+        )
+        if cur.rowcount == 0:
+            return False
+        cur.execute("DELETE FROM sessions WHERE email = %s", (email,))
+        # A successful reset also clears the lockout: the person proved they can
+        # read the inbox, which is stronger evidence than the failures that
+        # locked them out in the first place.
+        cur.execute("DELETE FROM login_failures WHERE email = %s", (email,))
+    return True
+
+
+def mark_email_verified(email: str) -> bool:
+    with cursor(commit=True) as cur:
+        cur.execute("UPDATE users SET email_verified = TRUE WHERE email = %s", (email,))
+        return cur.rowcount > 0
+
+
+def has_password(email: str) -> bool:
+    with cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM users WHERE email = %s AND password_hash IS NOT NULL", (email,)
+        )
+        return cur.fetchone() is not None
+
+
 def _get_user(cur, email: str) -> dict | None:
     cur.execute("SELECT * FROM users WHERE email = %s", (email,))
     return cur.fetchone()

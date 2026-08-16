@@ -8,12 +8,16 @@ someone else's.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app import auth, google_auth
+from app import auth, email_tokens, google_auth, mailer
+from app.config import settings
 
 router = APIRouter()
+log = logging.getLogger("carrel.auth")
 
 
 class Credentials(BaseModel):
@@ -46,12 +50,37 @@ def register(payload: Credentials) -> Session:
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Best effort, deliberately not blocking. A mail provider having a bad
+    # minute must not stop somebody creating an account: the address is
+    # unverified either way, and everything in the app works regardless.
+    _send_verification(result["email"])
+
     return Session(
         token=result["token"],
         email=result["email"],
         name=result["name"],
         avatar_url=result.get("avatar_url", ""),
     )
+
+
+def _send_verification(email: str) -> None:
+    if not mailer.configured():
+        return
+    try:
+        token = email_tokens.issue(email, email_tokens.VERIFY)
+        link = f"{settings.public_base_url}/verify?token={token}"
+        mailer.send(
+            email,
+            "Confirm your email for Carrel",
+            text=(
+                "Welcome to Carrel.\n\nConfirm this address so you can reset your "
+                f"password later if you need to:\n\n{link}\n\n"
+                "The link expires in a day. Ignore this if you did not sign up.\n"
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - never fail a sign-up over an email
+        log.warning("verification email failed for %s: %s", email, exc)
 
 
 def _client_ip(request: Request) -> str:
