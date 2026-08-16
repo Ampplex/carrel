@@ -25,10 +25,10 @@ import logging
 from html import escape
 
 from fastapi import APIRouter, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, Field
 
-from app import auth, email_tokens, mailer
+from app import auth, deliverability, email_tokens, mailer
 from app.config import settings
 
 router = APIRouter()
@@ -107,7 +107,11 @@ def forgot(payload: ForgotIn, request: Request) -> dict:
             _send_reset(email)
         elif auth.account_exists(email):
             _send_google_only_notice(email)
-        else:
+        elif deliverability.worth_sending_to(email):
+            # Only the no-account courtesy note is gated on this. An address
+            # with an account has already received mail from us, so it is known
+            # good; refusing to send its reset link because a DNS lookup
+            # stuttered would lock somebody out to protect a bounce rate.
             _send_no_account_notice(email)
     except mailer.MailFailed as exc:
         # Logged, not surfaced. The failure is ours, and the response must stay
@@ -187,12 +191,21 @@ button { width:100%; padding:.75rem; font-size:1rem; font-weight:600; border:0;
 """
 
 
+# The reset URL carries a live credential in its query string. Any request the
+# page makes to another origin would put that URL in a Referer header, so the
+# page loads nothing external — and says so to the browser as well, which also
+# covers a link somebody clicks from the page.
+_NO_REFERRER = {"Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}
+
+
 def _page(title: str, body: str) -> HTMLResponse:
     return HTMLResponse(
-        f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+        content=f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>{escape(title)} · Carrel</title><style>{_PAGE_STYLE}</style></head>
-<body><h1>{escape(title)}</h1>{body}</body></html>"""
+<body><h1>{escape(title)}</h1>{body}</body></html>""",
+        headers=_NO_REFERRER,
     )
 
 
@@ -266,6 +279,34 @@ def reset_submit(
     # thing verification asks — so record it rather than making them do it twice.
     auth.mark_email_verified(email)
 
+    # And say so, in a second email. If somebody else reset this password, this
+    # is how the owner finds out while it is still worth acting on. It is also
+    # the only message in this flow that carries no link and no token, so it is
+    # safe to forward to anyone helping them.
+    try:
+        mailer.send(
+            email,
+            "Your Carrel password was changed",
+            text=(
+                "The password for this Carrel account was just changed, and every "
+                "signed-in device was signed out.\n\n"
+                "If that was you, there is nothing to do.\n\n"
+                "If it was not, somebody has access to this inbox — change its "
+                "password first, then reset your Carrel password again.\n"
+            ),
+        )
+    except Exception as exc:  # noqa: BLE001 - the reset already succeeded
+        log.warning("could not send the password-changed notice to %s: %s", email, exc)
+
+    # Redirect rather than render. The token is in the POST body, but a browser
+    # that renders this response keeps the form's URL in history and in the back
+    # button; sending the browser to a clean URL means the spent token stops
+    # travelling around. It also makes refresh harmless.
+    return RedirectResponse("/reset/done", status_code=303)
+
+
+@router.get("/reset/done", response_class=HTMLResponse)
+def reset_done() -> HTMLResponse:
     return _page(
         "Password changed",
         "<p>You can sign in with your new password now.</p>"

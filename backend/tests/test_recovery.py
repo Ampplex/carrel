@@ -294,3 +294,90 @@ def test_the_form_asks_for_confirmation(mail):
 
     assert 'name="password"' in body
     assert 'name="confirm"' in body
+
+
+def test_garbage_addresses_are_not_handed_to_the_mail_provider(mail, monkeypatch):
+    """Two costs, both avoidable.
+
+    A syntactically broken address came back 400 from the provider and logged an
+    error for what was only ever a typo. An address on a domain that does not
+    exist is worse: the provider accepts it, attempts delivery, and it hard
+    bounces — and a sender with a high bounce rate gets throttled, which lands
+    on the reset emails that actually matter.
+    """
+    client = TestClient(app)
+
+    for address in ("not-an-email", "someone@this-domain-does-not-exist-9x7q.invalid"):
+        assert client.post("/api/auth/forgot", json={"email": address}).status_code == 200
+
+    assert mail == [], f"nothing should have been sent, got {[m['to'] for m in mail]}"
+
+
+def test_a_real_account_is_never_gated_on_dns(mail, monkeypatch):
+    """The deliverability check guards the courtesy note only.
+
+    A resolver hiccup must never be the reason somebody cannot reset a password
+    — they already receive mail from us, so the address is known good.
+    """
+    from app import deliverability
+
+    auth.register("ada@example.com", "a password")
+    monkeypatch.setattr(deliverability, "worth_sending_to", lambda email: False)
+
+    TestClient(app).post("/api/auth/forgot", json={"email": "ada@example.com"})
+
+    assert [m["to"] for m in mail] == ["ada@example.com"]
+    assert "token=" in mail[0]["text"]
+
+
+def test_the_owner_is_told_when_the_password_changes(mail):
+    """If somebody else reset it, this is how the owner finds out while it is
+    still worth acting on."""
+    auth.register("ada@example.com", "the old password")
+    client = TestClient(app)
+    client.post("/api/auth/forgot", json={"email": "ada@example.com"})
+    client.post(
+        "/reset",
+        data={
+            "token": _token_from(mail[0]["text"]),
+            "password": "a new one",
+            "confirm": "a new one",
+        },
+        follow_redirects=True,
+    )
+
+    notice = [m for m in mail if "was changed" in m["subject"]]
+    assert notice, [m["subject"] for m in mail]
+    assert "token=" not in notice[0]["text"], "the notice must carry no credential"
+
+
+def test_a_successful_reset_redirects_so_the_token_leaves_the_url(mail):
+    """Rendering the result would leave the form's URL — token and all — in
+    history and in the back button."""
+    auth.register("ada@example.com", "the old password")
+    client = TestClient(app)
+    client.post("/api/auth/forgot", json={"email": "ada@example.com"})
+
+    response = client.post(
+        "/reset",
+        data={
+            "token": _token_from(mail[0]["text"]),
+            "password": "a new one",
+            "confirm": "a new one",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["location"] == "/reset/done"
+    assert "token" not in response.headers["location"]
+
+
+def test_reset_pages_forbid_referrer_leakage(mail):
+    """The reset URL carries a live credential in its query string; a Referer
+    header would carry it to anywhere the page links."""
+    client = TestClient(app)
+    response = client.get("/reset?token=whatever")
+
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["cache-control"] == "no-store"
