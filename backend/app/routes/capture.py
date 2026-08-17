@@ -15,10 +15,11 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 import time
 import uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from starlette.concurrency import run_in_threadpool
 
 from app import auth, photo_store, reeve_gateway
@@ -28,10 +29,15 @@ from app.models import NoteIn, PhotoAccepted, PhotoBase64In, WriteAccepted
 from app.pending import registry
 
 router = APIRouter()
+log = logging.getLogger("carrel.capture")
 
 
 @router.post("/api/notes", response_model=WriteAccepted)
-def create_note(payload: NoteIn, user: dict = Depends(auth.current_user)) -> WriteAccepted:
+def create_note(
+    payload: NoteIn,
+    background: BackgroundTasks,
+    user: dict = Depends(auth.current_user),
+) -> WriteAccepted:
     ns = user["namespace"]
     chunks = chunk_note(payload.text, payload.context_line)
     if not chunks:
@@ -44,18 +50,46 @@ def create_note(payload: NoteIn, user: dict = Depends(auth.current_user)) -> Wri
         )
 
     batch_id = uuid.uuid4().hex
-    accepted = []
-    for index, chunk in enumerate(chunks):
-        if index:
-            # Bursts of writes trigger model throttling upstream, and each chunk
-            # costs a vision-free but still model-backed extraction.
-            time.sleep(settings.chunk_pace_seconds)
-        result = reeve_gateway.store_note(chunk, ns)
-        accepted.append(
-            registry.add(namespace=ns, kind="note", preview=chunk, batch_id=batch_id, store_result=result)
-        )
+
+    # Every chunk gets a tray entry before anything is sent, so the response can
+    # come back immediately and the app can show what is in flight.
+    accepted = [
+        registry.add(namespace=ns, kind="note", preview=chunk, batch_id=batch_id, store_result=None)
+        for chunk in chunks
+    ]
+
+    # The writing happens after the response.
+    #
+    # Writes are paced to avoid throttling upstream, so doing this inline meant
+    # the request stayed open for roughly two seconds per chunk — twenty-four
+    # seconds at the old twelve-chunk ceiling, and over two minutes at the
+    # current one. That is what actually capped how much text could be stored;
+    # the chunk count was only the symptom.
+    #
+    # The tray was built for exactly this: it already knows how to say "accepted,
+    # still settling" and to stop claiming so when a write turns out to have
+    # failed. Nothing new had to be invented to make the response instant.
+    background.add_task(_write_chunks, ns, list(zip(chunks, [a.id for a in accepted])))
 
     return WriteAccepted(batch_id=batch_id, pending=accepted, chunked=len(chunks) > 1)
+
+
+def _write_chunks(namespace: str, work: list[tuple[str, str]]) -> None:
+    """Send each chunk to Reeve, pacing between them, recording what happened.
+
+    A failure marks that chunk `failed` rather than leaving it `indexing`. An
+    entry that sits there looking busy and then quietly ages out of the tray is
+    the same silent loss this whole subsystem exists to prevent.
+    """
+    for index, (chunk, item_id) in enumerate(work):
+        if index:
+            time.sleep(settings.chunk_pace_seconds)
+        try:
+            result = reeve_gateway.store_note(chunk, namespace)
+            registry.mark_written(namespace, item_id, failed=False, result=result)
+        except Exception as exc:  # noqa: BLE001 - one bad chunk must not stop the rest
+            log.warning("chunk %d/%d failed for %s: %s", index + 1, len(work), namespace, exc)
+            registry.mark_written(namespace, item_id, failed=True)
 
 
 def _store_photo_bytes(raw: bytes, media_type: str, caption: str, ns: str) -> PhotoAccepted:

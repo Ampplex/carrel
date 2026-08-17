@@ -21,7 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createStaticNavigation } from "@react-navigation/native";
 import { createStackNavigator, createStackScreen } from "@react-navigation/stack";
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Image, StyleSheet, Text, View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { Session, api, loadToken } from "./src/api";
@@ -113,7 +113,10 @@ export default function App() {
         <StatusBar style="light" />
         {boot.stage === "loading" || !Navigation ? (
           <SafeAreaView style={s.boot}>
-            <Text style={s.bootBrand}>Carrel</Text>
+            {/* The same mark the system splash shows, on the same ground, so
+                the handoff from splash to app has no visible seam — no flash
+                of a different colour, no logo jumping to a new position. */}
+            <Image source={require("./assets/splash-icon.png")} style={s.bootMark} />
             <ActivityIndicator color={t.color.accent} />
           </SafeAreaView>
         ) : (
@@ -135,6 +138,7 @@ const s = StyleSheet.create({
     justifyContent: "center",
     gap: 20,
   },
+  bootMark: { width: 240, height: 89, resizeMode: "contain" },
   bootBrand: {
     color: t.color.ink,
     fontSize: 30,

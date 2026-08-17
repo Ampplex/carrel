@@ -147,6 +147,48 @@ class PendingRegistry:
             row = cur.fetchone()
         return _row(row) if row else None
 
+    def mark_written(
+        self, namespace: str, item_id: str, *, failed: bool, result: dict | None = None
+    ) -> None:
+        """Record what a background write actually did.
+
+        Three outcomes, and conflating two of them was a real bug. Reeve answers
+        an asynchronous write with `stored: False` and a pending id — meaning
+        *accepted, still settling*, which is the entire reason this tray exists.
+        Reading that as failure marked 58 chunks of a perfectly good note as
+        `failed` while logging no errors at all, because nothing had gone wrong.
+
+          * the call raised          -> failed
+          * it answered stored=True  -> indexed, which is a measurement
+          * it answered stored=False -> still indexing; the pending id is kept
+                                        so a later probe can look it up
+        """
+        now = time.time()
+        if failed:
+            with cursor(commit=True) as cur:
+                cur.execute(
+                    "UPDATE pending_writes SET status = 'failed', verified_at = NULL"
+                    " WHERE id = %s AND namespace = %s",
+                    (item_id, namespace),
+                )
+            return
+
+        if result and result.get("stored"):
+            with cursor(commit=True) as cur:
+                cur.execute(
+                    "UPDATE pending_writes SET status = 'indexed', verified_at = %s"
+                    " WHERE id = %s AND namespace = %s",
+                    (now, item_id, namespace),
+                )
+            return
+
+        # Accepted and settling: leave the status alone, keep the pointer.
+        with cursor(commit=True) as cur:
+            cur.execute(
+                "UPDATE pending_writes SET pending_id = %s WHERE id = %s AND namespace = %s",
+                ((result or {}).get("pending_id"), item_id, namespace),
+            )
+
     def list(self, namespace: str) -> list[PendingWrite]:
         """Current view, with time-based statuses refreshed and stale rows swept.
 

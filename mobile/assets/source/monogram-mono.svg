@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><g transform="translate(512,512) scale(0.66) translate(-512,-512)">
+  <!-- x is nudged left of centre on purpose: text-anchor centres the advance
+       width, but an italic C leans right, so the optical centre and the
+       geometric one are ~45px apart. The rule is aligned to where the letter
+       actually sits, not to where the box says it does. -->
+  <text x="468" y="636" text-anchor="middle"
+        font-family="Baskerville" font-style="italic" font-size="560"
+        fill="#FFFFFF">C</text>
+  <line x1="352" y1="736" x2="672" y2="736"
+        stroke="#FFFFFF" stroke-width="44" stroke-linecap="round"/>
+</g></svg>

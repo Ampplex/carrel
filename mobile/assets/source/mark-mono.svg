@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024"><g transform="translate(512,512) scale(0.62) translate(-512,-512)">
+  <!-- Centred deliberately: the shape spans y 288..830, so without this shift
+       the mark sits 47px low and reads as misaligned on the splash. -->
+  <g transform="translate(0,-47)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 352 700 L 352 486 A 160 160 0 0 1 672 486 L 672 700"
+          stroke="#FFFFFF" stroke-width="76"/>
+    <line x1="286" y1="792" x2="738" y2="792" stroke="#FFFFFF" stroke-width="76"/>
+  </g>
+</g></svg>

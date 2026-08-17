@@ -116,8 +116,16 @@ class Settings:
     # Long notes dilute their own key fact in retrieval, so the app chunks them.
     chunk_threshold_chars: int = 1200
     chunk_target_chars: int = 600
-    max_chunks: int = 12
-    chunk_pace_seconds: float = 1.5
+    # 120 chunks is roughly 72,000 characters — a long lecture transcript or a
+    # whole chat export. It used to be 12, which rejected anything past about
+    # 7,200 characters with "break it up yourself".
+    #
+    # The real limit was never the count: writes are paced to avoid throttling
+    # upstream, so 120 chunks would have meant a request held open for two
+    # minutes. They are written in the background now, which is what makes a
+    # number this size usable rather than merely permitted.
+    max_chunks: int = 120
+    chunk_pace_seconds: float = 0.9
 
     def require_api_key(self) -> None:
         if not self.api_key:
