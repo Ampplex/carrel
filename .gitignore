@@ -31,3 +31,6 @@ mobile/dist/
 # Android release signing key — a private key; never committed.
 mobile/android/app/*.keystore
 !mobile/android/app/debug.keystore
+
+# Play upload bundle — 51MB build artefact, rebuilt with `./gradlew bundleRelease`
+play/bundle/

@@ -34,7 +34,8 @@
       },
       "predictiveBackGestureEnabled": false,
       "softwareKeyboardLayoutMode": "resize",
-      "package": "com.ampplex.carrel"
+      "package": "com.ampplex.carrel",
+      "versionCode": 1
     },
     "web": {
       "favicon": "./assets/favicon.png"
