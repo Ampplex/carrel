@@ -322,3 +322,43 @@ def test_the_persona_marker_reaches_the_graph(stubbed):
     client.post("/api/converse", json={"message": "you are Aleyna"}, headers=headers)
 
     assert stubbed["stored"] == [f"{conversation.PERSONA_PREFIX}you are Aleyna"]
+
+
+# ── identity is not retrieved ─────────────────────────────────────────────────
+
+
+def test_the_signed_in_name_is_always_stated(stubbed, monkeypatch):
+    """Asked "who am I", retrieval once returned a top-K without the line naming
+    the person, so it answered "you haven't told me your name yet" — and the
+    next message, phrased differently, got it right. The name is on the account;
+    it must never depend on ranking luck."""
+    seen = {}
+
+    def capture(**kwargs):
+        seen.update(kwargs)
+        return iter(["ok"])
+
+    import app.routes.converse as route
+
+    monkeypatch.setattr(route.conversation, "stream_reply", capture)
+    session = auth.register("ada@example.com", "a good password", "Ada Lovelace")
+    client = TestClient(app)
+    client.post(
+        "/api/converse",
+        json={"message": "who am i"},
+        headers={"Authorization": f"Bearer {session['token']}"},
+    )
+
+    assert seen["speaker_name"] == "Ada Lovelace"
+
+
+def test_a_persona_is_saved_to_the_account_immediately(stubbed):
+    """Not in a background task: the next message can arrive before a background
+    write lands, and being someone else for one turn is the bug."""
+    session = auth.register("ada@example.com", "a good password", "Ada")
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {session['token']}"}
+
+    client.post("/api/converse", json={"message": "you are Mira"}, headers=headers)
+
+    assert auth.resolve(session["token"])["persona"] == "you are Mira"

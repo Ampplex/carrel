@@ -376,6 +376,18 @@ def delete_account(email: str) -> bool:
         return cur.rowcount > 0
 
 
+def set_persona(email: str, persona: str) -> None:
+    """Record who Carrel is for this account.
+
+    Deliberately account state rather than a memory to be retrieved. A persona
+    that depends on whether its episode happened to rank in the top handful of
+    results is a persona that changes between one message and the next, which is
+    exactly the bug this fixes.
+    """
+    with cursor(commit=True) as cur:
+        cur.execute("UPDATE users SET persona = %s WHERE email = %s", (persona.strip(), email))
+
+
 def resolve(token: str) -> dict | None:
     """Token → account, or None if unknown or expired."""
     if not token:
@@ -400,6 +412,7 @@ def resolve(token: str) -> dict | None:
         "name": row.get("name", ""),
         "namespace": row["namespace"],
         "avatar_url": row.get("avatar_url", ""),
+        "persona": row.get("persona", "") or "",
     }
 
 

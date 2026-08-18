@@ -215,6 +215,11 @@ ALTER TABLE pending_writes ADD COLUMN IF NOT EXISTS pending_id TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub TEXT NOT NULL DEFAULT '';
 ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN NOT NULL DEFAULT FALSE;
+-- The name Carrel answers to, when the person has given it one. Kept beside the
+-- account rather than looked up in the graph: a persona is not a fact to be
+-- searched for, it is who the assistant currently is, and it has to be the same
+-- in every conversation and on every message. Retrieval could not promise that.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS persona TEXT NOT NULL DEFAULT '';
 """
 
 

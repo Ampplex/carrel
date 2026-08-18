@@ -117,7 +117,11 @@ def converse(
         answer_parts: list[str] = []
         try:
             for piece in conversation.stream_reply(
-                message=message, memories=raw_context, history=history
+                message=message,
+                memories=raw_context,
+                history=history,
+                speaker_name=user.get("name") or "",
+                persona=user.get("persona") or "",
             ):
                 if not answer_parts:
                     piece = conversation.strip_opener(piece)
@@ -147,6 +151,16 @@ def converse(
 
         if not greeting:
             background.add_task(_remember, ns, message)
+        # A persona is answered with on every future message, so it is kept on
+        # the account as well as in the graph. Written here rather than in the
+        # background task because the next message may arrive before a
+        # background write has finished, and being someone else for one turn is
+        # exactly the inconsistency this is meant to end.
+        if conversation.is_persona(message):
+            try:
+                auth.set_persona(user["email"], message)
+            except Exception:  # noqa: BLE001 - never lose a reply over this
+                log.warning("could not save persona for %s", ns)
         log.info(
             "converse ns=%s ctx=%dch stored=%s", ns, len(raw_context), "no" if greeting else "yes"
         )

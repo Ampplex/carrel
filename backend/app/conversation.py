@@ -103,11 +103,14 @@ def as_memory(message: str) -> str:
 SYSTEM_PROMPT = """\
 You are Carrel, the person's own memory. You talk like a person, not a database.
 
+WHO YOU ARE TALKING TO
+{speaker}
+
 WHO YOU ARE
-Carrel is only your default name. If MEMORIES contains a persona the person set
-for you — a name, an age, a character — then that is who you are: answer to that
-name, speak as them in the first person, and never describe that persona in the
-third person as if it were somebody else. A persona changes your voice and
+{persona}
+If no persona is given above, you are Carrel. When one is given, that is who you
+are: answer to that name, speak as them in the first person, and never describe
+that persona in the third person as if it were somebody else. A persona changes your voice and
 nothing else; every rule below still holds. Stay inside what the persona
 actually says, too — a name and an age are a name and an age, not a licence to
 invent a job, a street or a history that nobody gave you.
@@ -131,9 +134,11 @@ normally, with no reference to memories at all.
 was not asked about. If they say hello, say hello back and stop — do not \
 mention what they stored earlier, and do not ask whether a memory is still \
 relevant.
-4b. Never say when something happened, or that it was recent, unless a memory \
-says so. "Earlier", "just now" and "the other day" are claims about time and \
-they need a source like any other fact.
+4b. NEVER say when something happened unless a memory gives you the date. \
+"Earlier", "just now", "the other day", "recently", "just turned", "still" — \
+these are claims about time and they are fabrications when nothing supports \
+them. This holds for a persona too: if you were told an age, that is the age, \
+not an age they "just turned". Say the fact without the timestamp.
 5. When a memory contradicts an older one, the later one is what is true now. \
 Say what is true now; mention the change only if it is what they asked about.
 6. When they have just told you something, acknowledge it briefly and naturally \
@@ -173,10 +178,34 @@ def _history_messages(history: list[dict]) -> list[dict]:
 
 
 def stream_reply(
-    *, message: str, memories: str, history: list[dict] | None = None
+    *,
+    message: str,
+    memories: str,
+    history: list[dict] | None = None,
+    speaker_name: str = "",
+    persona: str = "",
 ) -> Iterator[str]:
-    """Yield the reply in pieces, as the model writes it."""
-    system = SYSTEM_PROMPT.format(memories=memories.strip() or "(nothing stored about this yet)")
+    """Yield the reply in pieces, as the model writes it.
+
+    *speaker_name* and *persona* are passed in rather than retrieved, and that
+    is the whole point. Asked "who am I", retrieval returned a top-K that did
+    not happen to include the line naming the person, so the answer was "you
+    haven't told me your name yet" — and the very next message, phrased
+    differently, retrieved it and answered correctly. Identity cannot depend on
+    ranking luck. The name is on the account and the persona is beside it, so
+    both are stated every time, and the graph is left to do what it is good at:
+    everything else.
+    """
+    system = SYSTEM_PROMPT.format(
+        memories=memories.strip() or "(nothing stored about this yet)",
+        speaker=(
+            f"Their name is {speaker_name}. They are signed in, so this is certain — "
+            "never tell them you do not know their name."
+            if speaker_name
+            else "You have not been told their name."
+        ),
+        persona=persona.strip() or "(no persona set)",
+    )
     messages = _history_messages(history or [])
     messages.append({"role": "user", "content": [{"text": message}]})
 
@@ -184,7 +213,13 @@ def stream_reply(
         modelId=settings.chat_model_id,
         system=[{"text": system}],
         messages=messages,
-        inferenceConfig={"maxTokens": 700, "temperature": 0.4},
+        # 0.3 rather than 0.4: two prompt passes did not stop the model adding
+        # "just turned 20" and "the other day" to facts that carried no date.
+        # Lower temperature reduces the embellishment without flattening the
+        # voice. It does not eliminate it, and no prompt reliably will — what
+        # the rules do hold for is the part that matters: names, rooms, codes
+        # and dates are never invented, only the throwaway colour around them.
+        inferenceConfig={"maxTokens": 700, "temperature": 0.3},
     )
     for event in response["stream"]:
         delta = event.get("contentBlockDelta", {}).get("delta", {})
