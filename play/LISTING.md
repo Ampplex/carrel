@@ -14,7 +14,7 @@ names. Where a field has a hard character limit, the count is given.
 | Default language | English (United Kingdom) |
 | App or game | App |
 | Category | Productivity |
-| Contact email | `ankeshpune@gmail.com` |
+| Contact email | `reeve.co.in.ai@gmail.com` (what is actually set in the console) |
 | Privacy policy | `https://carrel.reeve.co.in/legal/privacy` |
 | Website (optional) | `https://carrel.reeve.co.in/legal/terms` |
 
@@ -176,3 +176,25 @@ Store notes and photographs by saying them in plain words, and ask for them
 back the same way. Answers show the memories they came from. Everything can be
 erased from Settings at any time.
 ```
+
+---
+
+## Console status — 18 Aug 2026
+
+The app-content checklist reads **10 of 11 complete**. Filled and saved:
+privacy policy, sign-in details, ads, content rating, target audience, data
+safety, government apps, financial features, health, and app category.
+
+The store listing holds the short description, full description, app icon and
+feature graphic, and is **saved as a draft** — Play refuses a full save until
+phone screenshots exist.
+
+Three things are left, and all of them are yours rather than mine:
+
+1. **A demo account**, which unblocks both screenshots and the reviewer
+   credentials. Sign-in details currently name
+   `tester.reeve.co.in.ai@gmail.com`; nobody has verified that account exists
+   in Carrel with that password. If it doesn't, review fails.
+2. **Screenshots** from that account — see `SCREENSHOTS.md`.
+3. **Uploading `bundle/app-release.aab`** (51 MB). Browser file upload caps at
+   10 MB, so it has to be dragged into the console by hand.

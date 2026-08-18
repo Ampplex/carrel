@@ -120,6 +120,19 @@ export interface Answer {
   unsettled_writes: number;
 }
 
+/** What the server decided the message was doing. */
+export type Intent = "remember" | "ask" | "chat";
+
+export interface ConverseDone {
+  answer: string;
+  /** True when the message was a statement and has been written to memory. */
+  stored: boolean;
+  /** Sources, and only when memory was actually used — never under small talk. */
+  evidence: ParsedContext | null;
+  unsettled: number;
+  took_ms: number;
+}
+
 export interface PhotoAnswer {
   answer: string;
   mode: string;
@@ -355,6 +368,100 @@ export const api = {
 
   ask: (question: string) =>
     request<Answer>("/api/ask", json({ question, with_evidence: false })),
+
+  /**
+   * A conversation turn, delivered as it is written.
+   *
+   * XMLHttpRequest rather than fetch, and not by preference: React Native's
+   * fetch has no readable body stream, so `await response.text()` is the only
+   * way to read it and that means waiting for the last byte — which is the one
+   * thing streaming exists to prevent. XHR exposes `responseText` as it grows,
+   * so this slices off whatever is new on each progress event.
+   *
+   * Returns a canceller. Leaving a screen mid-answer must actually stop the
+   * request; an abandoned stream that keeps calling back into an unmounted
+   * component is a warning at best and a crash at worst.
+   */
+  converse: (
+    message: string,
+    chatId: string | null,
+    on: {
+      meta?: (m: { intent: Intent; unsettled: number }) => void;
+      token?: (text: string) => void;
+      done?: (d: ConverseDone) => void;
+      error?: (message: string) => void;
+    }
+  ): (() => void) => {
+    let cancelled = false;
+    const xhr = new XMLHttpRequest();
+    let consumed = 0;
+
+    const handle = (block: string) => {
+      let event = "";
+      let data = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("event: ")) event = line.slice(7).trim();
+        else if (line.startsWith("data: ")) data = line.slice(6);
+      }
+      if (!event || !data) return;
+      let parsed: any;
+      try {
+        parsed = JSON.parse(data);
+      } catch {
+        return; // a half-written frame; the next progress event completes it
+      }
+      if (event === "meta") on.meta?.(parsed);
+      else if (event === "token") on.token?.(parsed.text ?? "");
+      else if (event === "done") on.done?.(parsed);
+      else if (event === "error") on.error?.(parsed.message ?? "Something went wrong.");
+    };
+
+    const drain = () => {
+      if (cancelled) return;
+      const text = xhr.responseText ?? "";
+      // Only complete frames are handled; a trailing partial one stays in the
+      // buffer until its terminator arrives.
+      const end = text.lastIndexOf("\n\n");
+      if (end < consumed) return;
+      const fresh = text.slice(consumed, end);
+      consumed = end + 2;
+      for (const block of fresh.split("\n\n")) {
+        if (block.trim()) handle(block);
+      }
+    };
+
+    (async () => {
+      const headers = await authHeaders();
+      if (cancelled) return;
+      xhr.open("POST", `${API_BASE}/api/converse`);
+      xhr.setRequestHeader("Content-Type", "application/json");
+      for (const [k, v] of Object.entries(headers)) xhr.setRequestHeader(k, v);
+      xhr.onprogress = drain;
+      xhr.onload = () => {
+        drain();
+        if (!cancelled && xhr.status >= 400) {
+          on.error?.(
+            xhr.status === 401
+              ? "Signed out. Sign in again to carry on."
+              : "Carrel couldn't answer that. Try again in a moment."
+          );
+        }
+      };
+      xhr.onerror = () => {
+        if (!cancelled) on.error?.("Can't reach Carrel. Check your connection and try again.");
+      };
+      xhr.send(JSON.stringify({ message, chat_id: chatId }));
+    })();
+
+    return () => {
+      cancelled = true;
+      try {
+        xhr.abort();
+      } catch {
+        /* already finished */
+      }
+    };
+  },
 
   context: (question: string) =>
     request<{ raw: string; parsed: ParsedContext }>("/api/context", json({ question })),

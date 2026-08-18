@@ -1,61 +1,53 @@
-# Screenshots — why they are not in this pack
+# Screenshots
 
-Play requires at least two phone screenshots, and they are the part of a listing
-people actually look at. They are missing here on purpose.
+All captured 18 Aug 2026 from the **demo account** (`tester.reeve.co.in.ai@gmail.com`)
+on the RMX3782 at 1080x2400, over adb. No face, no real name, no personal
+memory appears in any frame; the one address that did appear (Settings) is
+blurred. Seeded content is deliberately non-Indian and student-flavoured.
 
-## What happened
+The finished files are in `screenshots/`, named in the order they should appear
+in the listing:
 
-The natural screenshots are the chat and the conversation drawer. Captured from
-the phone, they contained:
+| # | File | What it shows |
+|---|---|---|
+| 1 | `a1-say-it.png` | Onboarding — "Just say it" |
+| 2 | `a2-corrections.png` | Onboarding — "Corrections are memories too" |
+| 3 | `a3-photograph.png` | Onboarding — "Photograph anything" |
+| 4 | `a4-seminar-moved-twice.png` | The two contradictory stores: moved to 214, then back to 210 |
+| 5 | `a5-latest-wins.png` | "Where is the Thursday seminar?" → room 210 — the correction wins |
+| 6 | `a6-shows-its-working.png` | The same answer with its 6 source memories expanded |
+| 7 | `a7-asked-later.png` | A *separate* conversation, no photo attached: the blue folder, the charger, 16:00 — all read off the photographed whiteboard |
+| 8 | `a8-your-data.png` | Settings: erase everything, delete account |
 
-- the owner's profile photograph and full name, in the drawer footer
-- real conversation titles: *"What colour footwear I'm wearing"*, *"What is my
-  favourite sport"*, *"Explain about today's activity"*
-- the answers underneath them
+## Two frames were deliberately dropped
 
-A Play listing is public and effectively permanent — it is indexed, mirrored by
-listing-scraper sites, and cached long after any edit. Those images were deleted
-rather than shipped.
+- **Photo attached, then asked about it in the same thread.** It proves only
+  that the model can read an image handed to it a second earlier. Frame 7 is
+  the real claim: the photo is gone from view, the conversation is different,
+  and the detail still comes back.
+- **A rambling four-point answer** that ignored the whiteboard and rendered raw
+  `**markdown**` asterisks. Both are defects, not features — see below.
 
-## The fix: a demo account
+## What the screenshots forced us to fix
 
-Screenshots should come from an account created for the purpose, holding
-memories that illustrate the app without belonging to anybody.
+Frame 7 did not work at first. Asked "who is speaking on 13 November?", Carrel
+said **"I don't remember"** while holding a photo that says so in handwriting.
 
-1. **Make the account.** Sign up in the app with an address kept for this, or
-   reuse the existing `reeve.co.in.ai@gmail.com`.
+Cause, in Reeve: `IMAGE_MEMORY_PROMPT` folded "any visible readable text" into a
+2-4 sentence description, so a timetable became "a whiteboard with blue and red
+writing listing a seminar series" and every name, date and room number was gone
+before it reached the graph. The retrieval gate made it worse — the ambient
+image lane needs `IMAGE_LANE_MIN_SAMPLE` (3) photos to find a break in the
+ranking, so an account with one photo never re-reads it, and the gate's excuse
+("the text lanes still retrieve it through its description") only holds if the
+description carries the detail.
 
-2. **Give it a handful of memories** that show what the app is for — something
-   like:
-   - *"The spare key is in the blue tin on the third shelf."*
-   - *"Priya from the lab prefers to be emailed, not called."*
-   - *"The Thursday seminar moved to room 214."* — then *"actually it moved back
-     to 210"*, which demonstrates supersession in one screenshot
-   - a photograph of a whiteboard or a printed page, then a question about a
-     detail in it
+Fixed in `llm-three-lane-memory` commit 07c8358 — the prompt now transcribes
+readable text verbatim under a `TEXT:` line, with its own token budget so a
+long transcript is not cut mid-row. Deployed to production, photo re-stored,
+and the same question now answers correctly.
 
-3. **Capture four screens:**
-   - the chat, mid-conversation, showing an answer
-   - the same answer with *show what this came from* expanded — this is the most
-     distinctive thing the app does and no competitor screenshot looks like it
-   - the conversation drawer
-   - Settings, showing that erasure is one tap away
+## Still open
 
-4. **Check every pixel before uploading.** The status bar carries the time and
-   battery, which is fine; what matters is that no name, face or real memory
-   belonging to a person appears anywhere.
-
-## Requirements
-
-| | |
-|---|---|
-| Minimum | 2 screenshots; 4–8 is better |
-| Size | 1080 × 2400 is what this phone produces, and is accepted |
-| Format | PNG or JPEG, no alpha |
-| Aspect | Between 16:9 and 9:16 |
-
-To capture one, with the device connected:
-
-```
-adb exec-out screencap -p > screen-1.png
-```
+The app renders answers as plain text with **no markdown handling**, so any
+`**bold**` or numbered list the model emits shows up as literal asterisks.

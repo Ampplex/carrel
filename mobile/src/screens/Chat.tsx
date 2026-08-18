@@ -44,6 +44,7 @@ import {
   api,
 } from "../api";
 import { AuthImage } from "../components/AuthImage";
+import { RichText } from "../components/RichText";
 import { ChatList } from "./ChatList";
 import { Settings } from "./Settings";
 import { theme as t } from "../theme";
@@ -58,6 +59,8 @@ interface Message {
   question?: string;
   evidence?: ParsedContext;
   meta?: string;
+  /** True while tokens are still arriving, so the bubble can show a caret. */
+  streaming?: boolean;
   /** Set on a 'Remembered.' note so the user can re-run it as a question. */
   askInstead?: string;
 }
@@ -104,6 +107,10 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
   const [busy, setBusy] = useState(false);
   const [unsettled, setUnsettled] = useState(0);
   const [chatId, setChatId] = useState<string | null>(null);
+  // A reply in flight, and how to stop it. Leaving the screen must actually
+  // abort the request rather than let it call back into a gone component.
+  const streamingRef = useRef(false);
+  const cancelRef = useRef<null | (() => void)>(null);
   const [chatTitle, setChatTitle] = useState("New chat");
   const [listOpen, setListOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
@@ -144,6 +151,11 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
       hidden.remove();
     };
   }, []);
+
+  // An answer still being written when the screen goes away is abandoned, not
+  // awaited: without this the XHR keeps firing progress callbacks into a
+  // component that no longer exists.
+  useEffect(() => () => cancelRef.current?.(), []);
 
   // The web app's settling tray becomes one line in the header. This endpoint
   // reads in-process state and never reaches Reeve, so polling it is free.
@@ -326,32 +338,79 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
           { role: "note", text: note },
         ]);
         refreshPending();
-      } else if (isQuestion(text)) {
-        const r = await api.ask(text);
-        const meta = `${(r.took_ms / 1000).toFixed(1)}s`;
-        push({ role: "Carrel", text: r.answer, question: text, meta });
-        persist([
-          { role: "you", text },
-          { role: "Carrel", text: r.answer, question: text, meta },
-        ]);
       } else {
-        await api.storeNote(text);
-        // Detection will still misjudge things. Offering the other reading
-        // right there turns a wrong guess into one tap rather than a retype.
-        push({ role: "note", text: "Remembered.", askInstead: text });
-        persist([
-          { role: "you", text },
-          { role: "note", text: "Remembered." },
-        ]);
-        refreshPending();
+        await converse(text);
       }
     } catch (e) {
       const err = e instanceof ApiError ? e : null;
       if (err?.status === 401) return onSignOut();
       push({ role: "note", text: err ? err.message : String(e) });
     } finally {
-      setBusy(false);
+      if (!streamingRef.current) setBusy(false);
     }
+  };
+
+  /**
+   * One turn of conversation, rendered as it arrives.
+   *
+   * An empty Carrel bubble goes up immediately and fills in. That bubble is
+   * addressed by id rather than by "the last message", because a photo write
+   * or a pending refresh can append while tokens are still coming and the last
+   * message stops being the one being written.
+   *
+   * Nothing is persisted until the reply is complete: a transcript containing
+   * half a sentence, saved because the network died mid-stream, is worse than
+   * no transcript, and there is nothing to resume it with.
+   */
+  const converse = async (text: string) => {
+    const id = nextId();
+    setMessages((prev) => [...prev, { id, role: "Carrel", text: "", streaming: true }]);
+    streamingRef.current = true;
+
+    await new Promise<void>((resolve) => {
+      const cancel = api.converse(text, chatId, {
+        token: (piece) =>
+          setMessages((prev) =>
+            prev.map((m) => (m.id === id ? { ...m, text: m.text + piece } : m))
+          ),
+        done: (d) => {
+          const meta = `${(d.took_ms / 1000).toFixed(1)}s`;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === id
+                ? {
+                    ...m,
+                    text: d.answer || m.text,
+                    meta,
+                    streaming: false,
+                    // The sources link appears only where there are sources;
+                    // `question` is what the evidence panel re-queries with.
+                    question: d.evidence ? text : undefined,
+                  }
+                : m
+            )
+          );
+          persist([
+            { role: "you", text },
+            { role: "Carrel", text: d.answer, question: d.evidence ? text : undefined, meta },
+          ]);
+          // A statement just went into the graph, so the settling count moved.
+          if (d.stored) refreshPending();
+          streamingRef.current = false;
+          setBusy(false);
+          resolve();
+        },
+        error: (message) => {
+          // Drop the empty bubble rather than leaving a blank one on screen.
+          setMessages((prev) => prev.filter((m) => m.id !== id));
+          push({ role: "note", text: message });
+          streamingRef.current = false;
+          setBusy(false);
+          resolve();
+        },
+      });
+      cancelRef.current = cancel;
+    });
   };
 
   // Swipe in from the left edge to open the drawer — the other half of the
@@ -428,7 +487,23 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
       <View style={[s.row, mine ? s.rowMine : s.rowTheirs]}>
         <View style={[s.bubble, mine ? s.bubbleMine : s.bubbleTheirs]}>
           {item.image && <AuthImage uri={item.image.uri} style={s.image} />}
-          {!!item.text && <Text style={s.bubbleText}>{item.text}</Text>}
+          {/* Carrel's own answers may carry the little Markdown a model emits;
+              what the user typed is shown exactly as they typed it, stars and
+              all, because there it is content rather than formatting. */}
+          {mine ? (
+            !!item.text && <Text style={s.bubbleText}>{item.text}</Text>
+          ) : item.streaming ? (
+            // Plain Text while the tokens land: a half-written "**" would
+            // otherwise flicker between bold and literal as the pair completes.
+            // The caret is what makes a pause read as thinking rather than as
+            // a hang.
+            <Text style={s.bubbleText}>
+              {item.text}
+              <Text style={s.caret}>▌</Text>
+            </Text>
+          ) : (
+            !!item.text && <RichText style={s.bubbleText}>{item.text}</RichText>
+          )}
           {!!item.meta && <Text style={s.meta}>{item.meta}</Text>}
 
           {item.question && !item.evidence && (
@@ -540,14 +615,31 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
         )}
 
         {attachOpen && (
-          <>
-            {/* Anywhere else dismisses, the way a menu should. */}
-            <Pressable style={s.attachScrim} onPress={() => toggleAttachMenu(false)} />
+          /* Anywhere else dismisses, the way a menu should. */
+          <Pressable style={s.attachScrim} onPress={() => toggleAttachMenu(false)} />
+        )}
+
+        <View
+          style={[
+            s.composer,
+            { paddingBottom: keyboard > 0 ? 10 : Math.max(insets.bottom, 10) },
+          ]}
+        >
+          {/* Anchored to the composer, not to the screen.
+              It used to be an absolute child of the keyboard-padded container
+              with `bottom: <inset> + 56`, and Yoga measures an absolute child's
+              offset from the container's full box rather than from the padding
+              it was given. With the keyboard up that put the menu ~66px from the
+              bottom of the WINDOW — underneath the keyboard. The + rotated into
+              an x, so the menu had opened; it was simply drawn where nobody
+              could see it. Hanging it off the composer means it inherits
+              whatever keeps the composer above the keyboard, on both platforms,
+              with no second copy of that arithmetic to keep in step. */}
+          {attachOpen && (
             <Animated.View
               style={[
                 s.attachMenu,
                 {
-                  bottom: (keyboard > 0 ? 10 : Math.max(insets.bottom, 10)) + 56,
                   opacity: attachAnim,
                   transform: [
                     { translateY: attachAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) },
@@ -566,15 +658,8 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
                 <Text style={s.attachLabel}>Choose from library</Text>
               </Pressable>
             </Animated.View>
-          </>
-        )}
+          )}
 
-        <View
-          style={[
-            s.composer,
-            { paddingBottom: keyboard > 0 ? 10 : Math.max(insets.bottom, 10) },
-          ]}
-        >
           <Pressable style={s.attachBtn} onPress={attach} disabled={busy} hitSlop={6}>
             <Animated.Text
               style={[
@@ -707,6 +792,7 @@ const s = StyleSheet.create({
     borderTopLeftRadius: 4,
   },
   bubbleText: { color: t.color.ink, ...t.text.body },
+  caret: { color: t.color.accent },
   image: { width: 210, height: 145, borderRadius: t.radius.sm, marginBottom: 8 },
   meta: { color: t.color.inkTertiary, ...t.text.mono, marginTop: 7 },
   link: { color: t.color.accent, ...t.text.small, marginTop: 8 },
@@ -760,6 +846,9 @@ const s = StyleSheet.create({
   attachMenu: {
     position: "absolute",
     left: 12,
+    // Sits directly on top of the composer row, wherever that row happens to be.
+    bottom: "100%",
+    marginBottom: 8,
     backgroundColor: t.color.cardRaised,
     borderRadius: t.radius.md,
     borderWidth: StyleSheet.hairlineWidth,
