@@ -10,6 +10,7 @@ names. Where a field has a hard character limit, the count is given.
 | Field | Value |
 |---|---|
 | App name | `Carrel` |
+| Version | `1.1.0` (versionCode 2) |
 | Package | `com.ampplex.carrel` |
 | Default language | English (United Kingdom) |
 | App or game | App |
@@ -22,58 +23,49 @@ names. Where a field has a hard character limit, the count is given.
 
 ## Short description
 
-*Play limit: 80 characters. This is 72.*
+*Play limit: 80 characters. This is 71.*
 
 ```
-A memory for the things you'll need later. Just say it, and ask later.
+A memory you can talk to — tell it anything, and ask for it back later.
 ```
 
 ---
 
 ## Full description
 
-*Play limit: 4000 characters. This is about 1,500.*
+*Play limit: 4000 characters. This is about 2,226.*
 
 ```
-Carrel remembers the things you would otherwise write on the back of your hand.
+Carrel remembers the things you would otherwise write on the back of your hand — and you get them back by talking to it.
 
-Tell it in plain words — the name of the person you just met, the room your exam
-is in, where you put your passport, what your landlord agreed to on the phone.
-Later, ask in plain words too. There are no folders to choose, no tags to invent
-and no format to learn.
+TELL IT, DON'T FILE IT
+Say what happened the way you would say it out loud: the name of the person you just met, the room your exam moved to, where you put your passport. No folders, no tags, no format to learn. Everything you tell it is kept, and kept across every conversation — the conversation list only organises what you see, never what Carrel knows.
+
+ASK IN PLAIN WORDS
+Ask later, in any conversation, in whatever words come to mind. Answers are written out as they are composed rather than landing all at once.
+
+IT TALKS BACK
+Carrel holds an ordinary conversation. Ask something general and it answers; say thanks and it says you are welcome. What it will not do is invent a detail about your life. If you have not told it something, it says so plainly instead of guessing.
+
+MAKE IT YOURS
+Give it a name and a character if you want one — "you are Mira, a librarian" — and that is who it is, in every conversation, until you say otherwise.
 
 PHOTOGRAPHS, NOT JUST CAPTIONS
-
-Photograph a whiteboard, a slide, a receipt or a room. Carrel keeps the picture
-itself, not only what you typed about it, so months later you can ask about a
-detail nobody thought to write down at the time.
+Photograph a whiteboard, a slide, a receipt or a timetable. Carrel keeps the picture and reads the writing in it, so months later you can ask who was speaking on the 13th and get the answer off a board nobody thought to type up.
 
 CORRECTIONS ARE MEMORIES TOO
-
-Say "actually it moved to Thursday" and Carrel keeps both — what you said before
-and what you say now — so an answer can tell you what changed rather than
-quietly pretending the old version never existed.
+Say "actually it moved back to room 210" and Carrel keeps both versions and knows which came later. Ask, and you get what is true now.
 
 IT TELLS YOU WHAT IT IS UNSURE OF
-
-A memory takes a moment to become findable after you store it. Most apps hide
-that. Carrel shows it: a note that has just been saved is marked as still
-settling, and an answer that might be missing something says so. When it claims
-a memory is stored, it has checked.
+A new memory takes a moment to become findable. Most apps hide that. Carrel marks it while it is still settling, and an answer that might be missing something says so.
 
 SHOW YOUR WORKING
-
-Every answer can show the memories it came from, with dates, so you can see why
-Carrel said what it said instead of taking its word for it.
+Any answer can show the memories it came from, with dates, so you can see why Carrel said what it said instead of taking its word for it.
 
 YOUR DATA IS YOURS
+Everything you store belongs to your account alone. Settings erases all of it — notes, photographs and conversations — immediately, with no grace period and no copy retained. Deleting your account removes the login as well.
 
-Everything you store belongs to your account alone. Settings can erase all of it
-— notes, photographs and conversations — immediately, with no grace period and
-no copy retained. Deleting your account removes the login as well.
-
-Carrel needs an internet connection: your memories live on a server, not only on
-the phone, so they survive losing the device.
+Carrel needs an internet connection: your memories live on a server, not only on the phone, so they survive losing the device.
 ```
 
 ---
