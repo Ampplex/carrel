@@ -117,20 +117,65 @@ def test_a_statement_is_stored(stubbed):
     assert stubbed["stored"] == ["The seminar moved to room 214."]
 
 
-def test_a_question_is_kept_too(stubbed):
-    """A deliberate trade, made after a classifier called a fact small talk and
-    the reply said "Got it" over an empty write. Keeping everything means the
-    graph also holds the questions, which is noise; missing a fact is worse,
-    because the person watched it be acknowledged."""
+def test_a_pure_question_is_not_promoted_to_the_graph(stubbed):
+    """Nobody ever retrieves "what did I ask about my locker code", and every
+    stored question competes for the few slots retrieval returns — which is how
+    a signed-in user got told his name was unknown. The text still lives in the
+    conversation transcript, so this decision costs nothing if it is wrong."""
     client, headers = _signed_in()
-    stubbed["intent"] = "ask"
     stubbed["context"] = "The seminar is in room 210."
     response = client.post(
         "/api/converse", json={"message": "where is the seminar"}, headers=headers
     )
 
-    assert _events(response)[-1][1]["stored"] is True
-    assert stubbed["stored"] == ["where is the seminar"]
+    assert _events(response)[-1][1]["stored"] is False
+    assert stubbed["stored"] == []
+
+
+def test_a_question_carrying_a_fact_is_promoted_whole(stubbed):
+    """Splitting a mixed message to keep half of it would be worse than keeping
+    the question alongside the fact."""
+    client, headers = _signed_in()
+    client.post(
+        "/api/converse",
+        json={"message": "where is the seminar? it moved to 214"},
+        headers=headers,
+    )
+
+    assert stubbed["stored"] == ["where is the seminar? it moved to 214"]
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["what is my name", "how old is she?", "where did I put it", "who is Marta?"],
+)
+def test_questions_are_recognised_without_a_model(message):
+    from app.routes.converse import _is_only_a_question
+
+    assert _is_only_a_question(message) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "my locker code is 4417",
+        "she is aleyna, a 20 year old girl",
+        "the seminar moved to room 214",
+        "will call Marta tomorrow about the fieldwork",
+        "can meet Marta at five",
+        "do you remember the code",
+    ],
+)
+def test_statements_are_never_mistaken_for_questions(message):
+    """The cost of a false positive is a lost memory; the cost of a false
+    negative is one wasted slot. So only a question mark or an opening wh-word
+    counts. Auxiliaries were tried and removed: "will call Marta tomorrow" and
+    "can meet Marta at five" are notes that open like questions. The price is
+    that an unpunctuated "do you remember the code" gets promoted, which is the
+    cheaper mistake."""
+    from app.routes.converse import _is_only_a_question
+
+    assert _is_only_a_question(message) is False
 
 
 def test_chat_with_content_is_kept(stubbed):

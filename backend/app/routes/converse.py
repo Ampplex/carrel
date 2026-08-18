@@ -149,7 +149,8 @@ def converse(
             except Exception:  # noqa: BLE001 - never lose an answer over its footnote
                 evidence = None
 
-        if not greeting:
+        promote = not greeting and not _is_only_a_question(message)
+        if promote:
             background.add_task(_remember, ns, message)
         # A persona is answered with on every future message, so it is kept on
         # the account as well as in the graph. Written here rather than in the
@@ -162,13 +163,13 @@ def converse(
             except Exception:  # noqa: BLE001 - never lose a reply over this
                 log.warning("could not save persona for %s", ns)
         log.info(
-            "converse ns=%s ctx=%dch stored=%s", ns, len(raw_context), "no" if greeting else "yes"
+            "converse ns=%s ctx=%dch stored=%s", ns, len(raw_context), "yes" if promote else "no"
         )
 
         yield conversation.sse(
             "done",
             answer=answer,
-            stored=not greeting,
+            stored=promote,
             evidence=evidence.model_dump() if hasattr(evidence, "model_dump") else evidence,
             unsettled=unsettled,
             took_ms=int((time.monotonic() - started) * 1000),
@@ -215,6 +216,39 @@ def _is_greeting(message: str) -> bool:
     if not words:
         return True
     return all(word in _PLEASANTRIES for word in words)
+
+
+# Questions are the noise. They add nothing anyone will ever retrieve — nobody
+# asks "what did I ask about my locker code" — and every one of them competes
+# for the handful of slots retrieval returns, pushing real facts out. That is
+# not theory: a signed-in user was told his name was unknown because the line
+# holding it lost a ranking contest.
+#
+# Classification is back, but only in the shape that cannot lose data. It is
+# deterministic rather than a model's opinion, it decides one thing (promote to
+# the graph or not), and the message survives either way in the conversation
+# transcript. The earlier version put a model's guess in front of "did you keep
+# this", and answered "Got it" over a write that never happened.
+#
+# Mixed messages are promoted whole. "Where is the seminar? It moved to 214"
+# carries a fact, and splitting it to keep half would be worse than keeping the
+# question along with it.
+# Only two signals count: a question mark, or an opening wh-word. Auxiliaries
+# were in here and had to come out — "will call Marta tomorrow", "can meet at
+# five", "should tell Marta about Thursday" all open like questions and are all
+# notes. The asymmetry decides it: promoting a question costs a slot, dropping a
+# statement costs a memory the person believes they stored. So the detector errs
+# towards keeping, and an unpunctuated "do you remember the code" is promoted
+# rather than risk the family of sentences that look like it.
+_WH = re.compile(r"^(what|whats|where|wheres|when|who|whos|whose|why|which|how)\b", re.IGNORECASE)
+
+
+def _is_only_a_question(message: str) -> bool:
+    """True when every sentence in the message is asking rather than telling."""
+    sentences = [p.strip() for p in re.findall(r"[^.?!]+[.?!]?", message) if p.strip()]
+    if not sentences:
+        return False
+    return all(s.endswith("?") or _WH.match(s) for s in sentences)
 
 
 def _retrieve(message: str, namespace: str) -> str:
