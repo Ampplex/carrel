@@ -23,44 +23,44 @@ names. Where a field has a hard character limit, the count is given.
 
 ## Short description
 
-*Play limit: 80 characters. This is 71.*
+*Play limit: 80 characters. This is 76.*
 
 ```
-A memory you can talk to — tell it anything, and ask for it back later.
+A memory you can rely on. It keeps what you tell it — and shows its sources.
 ```
 
 ---
 
 ## Full description
 
-*Play limit: 4000 characters. This is about 2,226.*
+*Play limit: 4000 characters. This is about 2,533.*
 
 ```
-Carrel remembers the things you would otherwise write on the back of your hand — and you get them back by talking to it.
+Most assistants forget you the moment you close them, and fill the gaps with something that sounds right. Carrel is built the other way round: what you tell it is kept, what it tells you comes from what you actually said, and when it does not know something it says so.
 
-TELL IT, DON'T FILE IT
-Say what happened the way you would say it out loud: the name of the person you just met, the room your exam moved to, where you put your passport. No folders, no tags, no format to learn. Everything you tell it is kept, and kept across every conversation — the conversation list only organises what you see, never what Carrel knows.
+IT DOESN'T FORGET
+Tell it once. Ask months later, in a different conversation, on a different day. The conversation list only organises what you see on screen — everything you have ever told Carrel is available in all of it, because the memory belongs to you, not to a thread.
 
-ASK IN PLAIN WORDS
-Ask later, in any conversation, in whatever words come to mind. Answers are written out as they are composed rather than landing all at once.
+IT DOESN'T MAKE THINGS UP
+Ask about your own life and the answer comes from your own words or not at all. If you never mentioned it, Carrel tells you that instead of inventing a plausible answer. That single rule is the difference between a memory you can act on and a chatbot you have to double-check.
 
-IT TALKS BACK
-Carrel holds an ordinary conversation. Ask something general and it answers; say thanks and it says you are welcome. What it will not do is invent a detail about your life. If you have not told it something, it says so plainly instead of guessing.
-
-MAKE IT YOURS
-Give it a name and a character if you want one — "you are Mira, a librarian" — and that is who it is, in every conversation, until you say otherwise.
-
-PHOTOGRAPHS, NOT JUST CAPTIONS
-Photograph a whiteboard, a slide, a receipt or a timetable. Carrel keeps the picture and reads the writing in it, so months later you can ask who was speaking on the 13th and get the answer off a board nobody thought to type up.
+SHOW YOUR WORKING
+Any answer can show the memories it came from, with dates. You are never asked to take its word for it.
 
 CORRECTIONS ARE MEMORIES TOO
-Say "actually it moved back to room 210" and Carrel keeps both versions and knows which came later. Ask, and you get what is true now.
+Say "actually it moved back to room 210" and Carrel keeps both versions and knows which came later. Ask, and you get what is true now — not the first thing you happened to say.
 
 IT TELLS YOU WHAT IT IS UNSURE OF
 A new memory takes a moment to become findable. Most apps hide that. Carrel marks it while it is still settling, and an answer that might be missing something says so.
 
-SHOW YOUR WORKING
-Any answer can show the memories it came from, with dates, so you can see why Carrel said what it said instead of taking its word for it.
+PHOTOGRAPHS, NOT JUST CAPTIONS
+Photograph a whiteboard, a timetable, a receipt or a slide. Carrel keeps the picture and reads the writing in it, so months later you can ask who was speaking on the 13th and get the answer off a board nobody thought to type up.
+
+TELL IT, DON'T FILE IT
+Say what happened the way you would say it out loud: the name of the person you just met, the room your exam moved to, where you put your passport. No folders, no tags, no format to learn.
+
+AND IT IS EASY TO TALK TO
+Ordinary conversation works — general questions, small talk, follow-ups that refer to the last answer. Give it a name and a character if you want one, and that is who it is until you say otherwise. Replies are written out as they are composed rather than landing all at once.
 
 YOUR DATA IS YOURS
 Everything you store belongs to your account alone. Settings erases all of it — notes, photographs and conversations — immediately, with no grace period and no copy retained. Deleting your account removes the login as well.
