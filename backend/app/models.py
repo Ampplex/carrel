@@ -27,6 +27,20 @@ class AskIn(BaseModel):
     with_evidence: bool = False
 
 
+class ConverseIn(BaseModel):
+    """One message in a conversation.
+
+    No `with_evidence` flag and no "is this a question" hint: the server decides
+    what the message is, and attaches sources only when the answer actually drew
+    on memories. The client's job is to send what was typed.
+    """
+
+    message: str = Field(min_length=1)
+    # Which thread this belongs to, so the model can see what was said before.
+    # Absent means a fresh conversation with no history.
+    chat_id: str | None = None
+
+
 class QuestionIn(BaseModel):
     question: str = Field(min_length=1)
 

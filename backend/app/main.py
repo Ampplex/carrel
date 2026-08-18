@@ -14,7 +14,18 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.errors import reeve_error_handler
-from app.routes import account, ask, auth, capture, chats, legal, photos, recovery, status
+from app.routes import (
+    account,
+    ask,
+    auth,
+    capture,
+    chats,
+    converse,
+    legal,
+    photos,
+    recovery,
+    status,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger("Carrel")
@@ -78,6 +89,7 @@ app.include_router(chats.router)
 app.include_router(status.router)
 app.include_router(capture.router)
 app.include_router(ask.router)
+app.include_router(converse.router)
 app.include_router(photos.router)
 
 # In development the frontend runs on its own Vite server and talks across CORS.

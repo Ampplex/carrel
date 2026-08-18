@@ -103,6 +103,32 @@ class Settings:
         )
     )
 
+    # The conversation layer. Mistral deliberately, to match what Reeve answers
+    # with on its own side: two different model families in one product means
+    # two voices, and the seam shows the moment a reply switches from one to the
+    # other. Streaming is what makes a reply feel like a conversation rather
+    # than a form submission, and every Mistral on Bedrock supports it.
+    #
+    # No new credential: the AWS keys already here for S3 reach Bedrock in the
+    # same region, so this adds a capability rather than a secret to rotate.
+    chat_model_id: str = field(
+        default_factory=lambda: os.environ.get(
+            "CARREL_CHAT_MODEL_ID", "mistral.mistral-large-3-675b-instruct"
+        ).strip()
+    )
+    chat_region: str = field(
+        default_factory=lambda: os.environ.get(
+            "CARREL_CHAT_REGION", os.environ.get("AWS_REGION", "ap-south-1")
+        ).strip()
+    )
+    # How much of the conversation is replayed to the model. Long enough that
+    # "what about the other one?" resolves, short enough that a months-old
+    # thread does not cost a fortune on every message. Anything older is not
+    # lost — it is in Reeve, which is the point of the product.
+    chat_history_turns: int = field(
+        default_factory=lambda: int(os.environ.get("CARREL_CHAT_HISTORY_TURNS", "12"))
+    )
+
     var_dir: Path = BACKEND_DIR / "var"
     photo_dir: Path = BACKEND_DIR / "var" / "photos"
 
