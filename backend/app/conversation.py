@@ -68,51 +68,49 @@ def _runtime():
     return _client
 
 
-CLASSIFY_PROMPT = """\
-You sort one message from a person into exactly one of three kinds. Answer with \
-one word and nothing else.
-
-remember - the message states something about their own life, work or plans that \
-is worth keeping: a fact, a decision, a change of plan, a person, a place, a \
-deadline. Corrections count ("actually it moved to Thursday").
-ask - the message asks for something they have told this app before.
-chat - anything else: greetings, thanks, small talk, questions about the world \
-that have nothing to do with their own stored life, and questions about this \
-conversation itself.
-
-Message: {message}"""
+# Classification used to live here — a small extra model call that labelled each
+# message remember / ask / chat. It is gone. Keeping every message removed the
+# decision it existed to make, and a judgement call that can be wrong has no
+# business sitting in front of "did you keep this or not": it once answered
+# "small talk" to a plain statement of fact, so the reply said "Got it" over a
+# write that never happened.
 
 
-def classify(message: str) -> Intent:
-    """Which of the three things is this message doing?
+# A message like "you are Mira, a 26 year old librarian" is not a note about
+# somebody called Mira. It is an instruction about who the assistant is, and
+# stored as plain text it comes back looking like a third person — which is why
+# asking later got "She's 26" instead of "I'm 26", and why a fresh session said
+# it had no name or age at all. Marking it at write time is what makes it
+# unambiguous when retrieved months later, beside everything else they said.
+_PERSONA = re.compile(
+    r"\b(you are|you're|youre|your name is|call yourself|act as|"
+    r"pretend to be|behave like|from now on you)\b",
+    re.IGNORECASE,
+)
 
-    Kept as its own tiny call rather than folded into the streamed reply. The
-    alternative — asking the model to emit a marker line and then the answer —
-    means either showing the marker to the user or buffering the stream until it
-    can be stripped, and buffering is exactly what streaming exists to avoid.
-    """
-    try:
-        response = _runtime().converse(
-            modelId=settings.chat_model_id,
-            messages=[{"role": "user", "content": [{"text": CLASSIFY_PROMPT.format(message=message)}]}],
-            inferenceConfig={"maxTokens": 5, "temperature": 0},
-        )
-        word = _text_of(response).strip().lower()
-    except Exception as exc:
-        # Never fail the message over classification. Treating an unknown as
-        # "ask" keeps the memory path working, which is the part people notice.
-        logger.warning("classification failed, defaulting to ask: %s", exc)
-        return "ask"
+PERSONA_PREFIX = "Persona the user set for you (this describes YOU, the assistant, not another person): "
 
-    if word.startswith("remember"):
-        return "remember"
-    if word.startswith("chat"):
-        return "chat"
-    return "ask"
+
+def is_persona(message: str) -> bool:
+    return bool(_PERSONA.search(message))
+
+
+def as_memory(message: str) -> str:
+    """What actually gets written to the graph for this message."""
+    return f"{PERSONA_PREFIX}{message}" if is_persona(message) else message
 
 
 SYSTEM_PROMPT = """\
 You are Carrel, the person's own memory. You talk like a person, not a database.
+
+WHO YOU ARE
+Carrel is only your default name. If MEMORIES contains a persona the person set
+for you — a name, an age, a character — then that is who you are: answer to that
+name, speak as them in the first person, and never describe that persona in the
+third person as if it were somebody else. A persona changes your voice and
+nothing else; every rule below still holds. Stay inside what the persona
+actually says, too — a name and an age are a name and an age, not a licence to
+invent a job, a street or a history that nobody gave you.
 
 WHAT YOU KNOW
 The MEMORIES block below is everything this person has told you that relates to \

@@ -39,7 +39,6 @@ def stubbed(monkeypatch):
     monkeypatch.setattr(route.reeve_gateway, "context", fake_context)
     monkeypatch.setattr(route.reeve_gateway, "store_note", fake_store)
     monkeypatch.setattr(reeve_gateway, "store_note", fake_store)
-    monkeypatch.setattr(route.conversation, "classify", lambda message: state["intent"])
     monkeypatch.setattr(
         route.conversation,
         "stream_reply",
@@ -85,14 +84,23 @@ def test_streams_meta_then_tokens_then_done(stubbed):
     assert done["answer"] == "Hello there."
 
 
-def test_every_message_retrieves_memory_even_a_greeting(stubbed):
-    """The old path only searched when a regex saw a question mark. A greeting
-    costs one cheap retrieval; a missed one costs an answer."""
+def test_every_real_message_retrieves_memory(stubbed):
+    """The old path only searched when a regex saw a question mark, so anything
+    phrased without one was answered blind."""
     client, headers = _signed_in()
-    stubbed["intent"] = "chat"
+    client.post("/api/converse", json={"message": "where did I put the keys"}, headers=headers)
+
+    assert stubbed["retrieved"] == ["where did I put the keys"]
+
+
+def test_a_greeting_costs_nothing(stubbed):
+    """Neither a retrieval nor a write. Nothing in the graph answers "hey", and
+    waiting on Reeve to find that out is three seconds of nothing."""
+    client, headers = _signed_in()
     client.post("/api/converse", json={"message": "hey"}, headers=headers)
 
-    assert stubbed["retrieved"] == ["hey"]
+    assert stubbed["retrieved"] == []
+    assert stubbed["stored"] == []
 
 
 # ── what gets kept ────────────────────────────────────────────────────────────
@@ -109,9 +117,11 @@ def test_a_statement_is_stored(stubbed):
     assert stubbed["stored"] == ["The seminar moved to room 214."]
 
 
-def test_a_question_is_not_stored(stubbed):
-    """Storing questions is how a memory graph fills up with things nobody
-    said. The old regex did exactly this whenever a question lacked its mark."""
+def test_a_question_is_kept_too(stubbed):
+    """A deliberate trade, made after a classifier called a fact small talk and
+    the reply said "Got it" over an empty write. Keeping everything means the
+    graph also holds the questions, which is noise; missing a fact is worse,
+    because the person watched it be acknowledged."""
     client, headers = _signed_in()
     stubbed["intent"] = "ask"
     stubbed["context"] = "The seminar is in room 210."
@@ -119,16 +129,18 @@ def test_a_question_is_not_stored(stubbed):
         "/api/converse", json={"message": "where is the seminar"}, headers=headers
     )
 
-    assert _events(response)[-1][1]["stored"] is False
-    assert stubbed["stored"] == []
+    assert _events(response)[-1][1]["stored"] is True
+    assert stubbed["stored"] == ["where is the seminar"]
 
 
-def test_chat_is_not_stored(stubbed):
+def test_chat_with_content_is_kept(stubbed):
+    """"thanks, that helps" carries a word that is not a pleasantry, so it is
+    kept. Only messages made entirely of pleasantries are ignored."""
     client, headers = _signed_in()
     stubbed["intent"] = "chat"
     client.post("/api/converse", json={"message": "thanks, that helps"}, headers=headers)
 
-    assert stubbed["stored"] == []
+    assert stubbed["stored"] == ["thanks, that helps"]
 
 
 # ── sources ───────────────────────────────────────────────────────────────────
@@ -188,45 +200,6 @@ def test_model_failure_is_reported_not_swallowed(stubbed, monkeypatch):
 # ── the model layer, without a model ──────────────────────────────────────────
 
 
-@pytest.mark.parametrize(
-    "word,expected",
-    [
-        ("remember", "remember"),
-        ("Remember.", "remember"),
-        ("ask", "ask"),
-        ("chat", "chat"),
-        ("CHAT", "chat"),
-        ("something else entirely", "ask"),
-    ],
-)
-def test_classify_reads_the_models_word(monkeypatch, word, expected):
-    monkeypatch.setattr(
-        conversation,
-        "_runtime",
-        lambda: type(
-            "R",
-            (),
-            {
-                "converse": staticmethod(
-                    lambda **kw: {"output": {"message": {"content": [{"text": word}]}}}
-                )
-            },
-        )(),
-    )
-    assert conversation.classify("anything") == expected
-
-
-def test_classify_failure_defaults_to_ask(monkeypatch):
-    """The memory path is the one people notice missing, so an unclassifiable
-    message is treated as a question rather than dropped or stored."""
-
-    def boom():
-        raise RuntimeError("no bedrock")
-
-    monkeypatch.setattr(conversation, "_runtime", boom)
-    assert conversation.classify("anything") == "ask"
-
-
 def test_history_alternates_and_opens_with_the_user():
     """Bedrock rejects a conversation that does not strictly alternate, and a
     stored thread can hold two user rows in a row when someone typed twice
@@ -249,3 +222,103 @@ def test_opener_is_stripped_once():
     assert conversation.strip_opener("Sure, room 210.") == "room 210."
     assert conversation.strip_opener("Certainly! it moved.") == "it moved."
     assert conversation.strip_opener("Room 210, surely.") == "Room 210, surely."
+
+
+# ── what counts as a greeting ─────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "message",
+    ["hey", "hey there", "hello!", "good morning", "thanks", "thank you", "ok cool", "👍"],
+)
+def test_greetings_are_ignored(message):
+    """Not stored and not made to wait for memory: "hey" is not a memory, and
+    nothing in the graph answers it."""
+    from app.routes.converse import _is_greeting
+
+    assert _is_greeting(message) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "she is aleyna , a 20 year old girl",
+        "hey my locker code is 4417",
+        "no, the seminar moved to 214",
+        "yes I live in Pune",
+        "what is my name",
+    ],
+)
+def test_anything_with_content_is_kept(message):
+    """The shape-based heuristic this replaced — short, no question mark,
+    nothing about the speaker — matched "she is aleyna" and threw it away."""
+    from app.routes.converse import _is_greeting
+
+    assert _is_greeting(message) is False
+
+
+def test_every_non_greeting_is_stored(stubbed):
+    """No judgement call about what deserves keeping. The classifier calling a
+    fact "small talk" is how "Got it — Aleyna, 20" was said over an empty
+    write."""
+    client, headers = _signed_in()
+    stubbed["intent"] = "chat"
+    response = client.post(
+        "/api/converse", json={"message": "she is aleyna, a 20 year old girl"}, headers=headers
+    )
+
+    assert _events(response)[-1][1]["stored"] is True
+    assert stubbed["stored"] == ["she is aleyna, a 20 year old girl"]
+
+
+def test_a_greeting_is_not_stored(stubbed):
+    client, headers = _signed_in()
+    stubbed["intent"] = "chat"
+    response = client.post("/api/converse", json={"message": "hey there"}, headers=headers)
+
+    assert _events(response)[-1][1]["stored"] is False
+    assert stubbed["stored"] == []
+
+
+# ── persona ───────────────────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "you are aleyna, a 20 year old girl",
+        "you're Aleyna",
+        "your name is Aleyna",
+        "from now on you are Aleyna",
+        "act as a patient tutor",
+    ],
+)
+def test_persona_statements_are_marked_as_being_about_the_assistant(message):
+    """Stored as plain text these read as notes about a third person, which is
+    exactly what went wrong: asked later it said "She's 20" instead of "I'm 20",
+    and a fresh session said it had no name at all."""
+    assert conversation.is_persona(message)
+    assert conversation.as_memory(message).startswith(conversation.PERSONA_PREFIX)
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "she is aleyna, a 20 year old girl",
+        "my sister is 20",
+        "aleyna is my lab partner",
+        "the seminar moved to room 214",
+    ],
+)
+def test_facts_about_other_people_are_stored_as_written(message):
+    """A persona marker on a note about somebody else would make the assistant
+    answer as them, which is worse than the bug it fixes."""
+    assert not conversation.is_persona(message)
+    assert conversation.as_memory(message) == message
+
+
+def test_the_persona_marker_reaches_the_graph(stubbed):
+    client, headers = _signed_in()
+    client.post("/api/converse", json={"message": "you are Aleyna"}, headers=headers)
+
+    assert stubbed["stored"] == [f"{conversation.PERSONA_PREFIX}you are Aleyna"]
