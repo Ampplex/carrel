@@ -93,7 +93,13 @@ function isQuestion(text: string): boolean {
 let seq = 0;
 const nextId = () => `m${++seq}`;
 
-export function Chat({ session, onSignOut }: { session: Session; onSignOut: () => void }) {
+export function Chat({
+  session,
+  onSignOut,
+}: {
+  session: Session;
+  onSignOut: () => void;
+}) {
   const greeting = (): Message => ({
     id: nextId(),
     role: "note",
@@ -140,10 +146,12 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
   // in Expo Go and in a standalone build, on both platforms.
   const [keyboard, setKeyboard] = useState(0);
   useEffect(() => {
-    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
     const shown = Keyboard.addListener(showEvent, (e) =>
-      setKeyboard(e.endCoordinates?.height ?? 0)
+      setKeyboard(e.endCoordinates?.height ?? 0),
     );
     const hidden = Keyboard.addListener(hideEvent, () => setKeyboard(0));
     return () => {
@@ -164,8 +172,10 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
       .pending()
       .then((items) =>
         setUnsettled(
-          items.filter((i) => i.status === "indexing" || i.status === "likely_indexed").length
-        )
+          items.filter(
+            (i) => i.status === "indexing" || i.status === "likely_indexed",
+          ).length,
+        ),
       )
       .catch(() => undefined);
   }, []);
@@ -192,9 +202,11 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
               question: m.question ?? undefined,
               // Server-hosted thumbnail, so a transcript still shows its photos
               // on a device that never held the original file.
-              image: m.thumb_url ? { uri: `${API_BASE}${m.thumb_url}` } : undefined,
+              image: m.thumb_url
+                ? { uri: `${API_BASE}${m.thumb_url}` }
+                : undefined,
             }))
-          : [greeting()]
+          : [greeting()],
       );
     } catch {
       setMessages([greeting()]);
@@ -296,7 +308,10 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
     if (!asset?.uri) {
       // Selection came back with nothing usable. Saying so beats a screen that
       // silently looks like the tap never happened.
-      push({ role: "note", text: "Couldn't read that photo. Try another one." });
+      push({
+        role: "note",
+        text: "Couldn't read that photo. Try another one.",
+      });
       return;
     }
     setAttached({
@@ -334,7 +349,11 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
         persist([
           // The server-hosted thumbnail, not the device path, so the transcript
           // still shows the photo elsewhere.
-          { role: "you", text, thumb_url: `/api/photos/${stored.photo_id}/raw` },
+          {
+            role: "you",
+            text,
+            thumb_url: `/api/photos/${stored.photo_id}/raw`,
+          },
           { role: "note", text: note },
         ]);
         refreshPending();
@@ -364,43 +383,114 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
    */
   const converse = async (text: string) => {
     const id = nextId();
-    setMessages((prev) => [...prev, { id, role: "Carrel", text: "", streaming: true }]);
+    setMessages((prev) => [
+      ...prev,
+      { id, role: "Carrel", text: "", streaming: true },
+    ]);
     streamingRef.current = true;
+
+    // Bedrock does not stream a token at a time. Measured against Mistral, a
+    // 900-character reply arrives as five chunks of about 180 characters, so
+    // appending each one as it lands makes the text jump in four or five
+    // blocks — which reads as "not streaming" no matter how live the socket is.
+    //
+    // So the text is buffered and revealed at a readable pace. Nothing is
+    // faked: every character shown has already arrived. The reveal only ever
+    // trails the network, and it catches up rather than falling behind — the
+    // more there is waiting, the faster it goes, so a long answer never ends up
+    // typing itself out for a minute after the server has finished.
+    let buffer = "";
+    let shown = 0;
+    let timer: ReturnType<typeof setInterval> | null = null;
+    let finish: (() => void) | null = null;
+
+    const stopReveal = () => {
+      if (timer) clearInterval(timer);
+      timer = null;
+    };
+
+    const startReveal = () => {
+      if (timer) return;
+      timer = setInterval(() => {
+        const pending = buffer.length - shown;
+        if (pending > 0) {
+          // A floor of two characters keeps short replies moving; the divisor
+          // drains a backlog quickly without ever outrunning what has arrived.
+          const step = Math.max(2, Math.ceil(pending / 8));
+          shown = Math.min(buffer.length, shown + step);
+          const visible = buffer.slice(0, shown);
+          setMessages((prev) =>
+            prev.map((m) => (m.id === id ? { ...m, text: visible } : m)),
+          );
+          return;
+        }
+        // Caught up. The server may already have finished, in which case
+        // completing here is what stops the reply being snapped to its full
+        // text mid-reveal — which is what happens when a short answer arrives
+        // in a single chunk and `done` lands a moment later.
+        if (finish) {
+          stopReveal();
+          finish();
+        }
+      }, 28);
+    };
 
     await new Promise<void>((resolve) => {
       const cancel = api.converse(text, chatId, {
-        token: (piece) =>
-          setMessages((prev) =>
-            prev.map((m) => (m.id === id ? { ...m, text: m.text + piece } : m))
-          ),
+        token: (piece) => {
+          buffer += piece;
+          startReveal();
+        },
         done: (d) => {
-          const meta = `${(d.took_ms / 1000).toFixed(1)}s`;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === id
-                ? {
-                    ...m,
-                    text: d.answer || m.text,
-                    meta,
-                    streaming: false,
-                    // The sources link appears only where there are sources;
-                    // `question` is what the evidence panel re-queries with.
-                    question: d.evidence ? text : undefined,
-                  }
-                : m
-            )
-          );
-          persist([
-            { role: "you", text },
-            { role: "Carrel", text: d.answer, question: d.evidence ? text : undefined, meta },
-          ]);
-          // A statement just went into the graph, so the settling count moved.
-          if (d.stored) refreshPending();
-          streamingRef.current = false;
-          setBusy(false);
-          resolve();
+          const complete = () => {
+            // Storing used to announce itself with the word "Remembered." That
+          // went away with the conversational reply, and nothing replaced it —
+          // so a fact going into the graph and idle chatter looked identical,
+          // and the honest reaction was "it isn't storing anything". The
+          // acknowledgement is the model's job; saying so plainly is the app's.
+          const meta = d.stored
+            ? `${(d.took_ms / 1000).toFixed(1)}s · kept`
+            : `${(d.took_ms / 1000).toFixed(1)}s`;
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === id
+                  ? {
+                      ...m,
+                      text: d.answer || m.text,
+                      meta,
+                      streaming: false,
+                      // The sources link appears only where there are sources;
+                      // `question` is what the evidence panel re-queries with.
+                      question: d.evidence ? text : undefined,
+                    }
+                  : m,
+              ),
+            );
+            persist([
+              { role: "you", text },
+              {
+                role: "Carrel",
+                text: d.answer,
+                question: d.evidence ? text : undefined,
+                meta,
+              },
+            ]);
+            // A statement just went into the graph, so the settling count moved.
+            if (d.stored) refreshPending();
+            streamingRef.current = false;
+            setBusy(false);
+            resolve();
+          };
+
+          // Let the reveal drain first, unless it has nothing left to show.
+          if (timer && shown < buffer.length) finish = complete;
+          else {
+            stopReveal();
+            complete();
+          }
         },
         error: (message) => {
+          stopReveal();
           // Drop the empty bubble rather than leaving a blank one on screen.
           setMessages((prev) => prev.filter((m) => m.id !== id));
           push({ role: "note", text: message });
@@ -430,11 +520,13 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
         return false; // observe only; do not steal the tap
       },
       onMoveShouldSetPanResponderCapture: (_, g) =>
-        touchStartX.current < 32 && g.dx > 10 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+        touchStartX.current < 32 &&
+        g.dx > 10 &&
+        Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
       onPanResponderRelease: (_, g) => {
         if (g.dx > 40) setListOpen(true);
       },
-    })
+    }),
   ).current;
 
   /** Re-run something that was stored as a memory, as a question instead. */
@@ -450,7 +542,10 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
         meta: `${(r.took_ms / 1000).toFixed(1)}s`,
       });
     } catch (e) {
-      push({ role: "note", text: e instanceof ApiError ? e.message : String(e) });
+      push({
+        role: "note",
+        text: e instanceof ApiError ? e.message : String(e),
+      });
     } finally {
       setBusy(false);
     }
@@ -461,9 +556,14 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
     setBusy(true);
     try {
       const { parsed } = await api.context(m.question);
-      setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, evidence: parsed } : x)));
+      setMessages((prev) =>
+        prev.map((x) => (x.id === m.id ? { ...x, evidence: parsed } : x)),
+      );
     } catch (e) {
-      push({ role: "note", text: e instanceof ApiError ? e.message : String(e) });
+      push({
+        role: "note",
+        text: e instanceof ApiError ? e.message : String(e),
+      });
     } finally {
       setBusy(false);
     }
@@ -589,7 +689,9 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
           s.flex,
           // iOS handles this natively; on Android the measured height is the
           // only thing that keeps the composer above the keyboard.
-          Platform.OS === "android" && keyboard > 0 ? { paddingBottom: keyboard } : null,
+          Platform.OS === "android" && keyboard > 0
+            ? { paddingBottom: keyboard }
+            : null,
         ]}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
@@ -600,14 +702,18 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
           keyExtractor={(m) => m.id}
           renderItem={renderItem}
           contentContainerStyle={s.list}
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+          onContentSizeChange={() =>
+            listRef.current?.scrollToEnd({ animated: false })
+          }
           keyboardDismissMode="interactive"
         />
 
         {attached && (
           <View style={s.attachBar}>
             <Image source={{ uri: attached.uri }} style={s.attachThumb} />
-            <Text style={s.attachHint}>Add a caption to keep it, or ask about it.</Text>
+            <Text style={s.attachHint}>
+              Add a caption to keep it, or ask about it.
+            </Text>
             <Pressable onPress={() => setAttached(null)} hitSlop={10}>
               <Text style={s.link}>remove</Text>
             </Pressable>
@@ -616,7 +722,10 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
 
         {attachOpen && (
           /* Anywhere else dismisses, the way a menu should. */
-          <Pressable style={s.attachScrim} onPress={() => toggleAttachMenu(false)} />
+          <Pressable
+            style={s.attachScrim}
+            onPress={() => toggleAttachMenu(false)}
+          />
         )}
 
         <View
@@ -642,25 +751,46 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
                 {
                   opacity: attachAnim,
                   transform: [
-                    { translateY: attachAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) },
-                    { scale: attachAnim.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) },
+                    {
+                      translateY: attachAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [10, 0],
+                      }),
+                    },
+                    {
+                      scale: attachAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [0.92, 1],
+                      }),
+                    },
                   ],
                 },
               ]}
             >
-              <Pressable style={s.attachItem} onPress={() => chooseSource("camera")}>
+              <Pressable
+                style={s.attachItem}
+                onPress={() => chooseSource("camera")}
+              >
                 <Text style={s.attachGlyphSm}>◎</Text>
                 <Text style={s.attachLabel}>Take a photo</Text>
               </Pressable>
               <View style={s.attachDivider} />
-              <Pressable style={s.attachItem} onPress={() => chooseSource("library")}>
+              <Pressable
+                style={s.attachItem}
+                onPress={() => chooseSource("library")}
+              >
                 <Text style={s.attachGlyphSm}>▤</Text>
                 <Text style={s.attachLabel}>Choose from library</Text>
               </Pressable>
             </Animated.View>
           )}
 
-          <Pressable style={s.attachBtn} onPress={attach} disabled={busy} hitSlop={6}>
+          <Pressable
+            style={s.attachBtn}
+            onPress={attach}
+            disabled={busy}
+            hitSlop={6}
+          >
             <Animated.Text
               style={[
                 s.attachGlyph,
@@ -689,7 +819,10 @@ export function Chat({ session, onSignOut }: { session: Session; onSignOut: () =
             editable={!busy}
           />
           <Pressable
-            style={[s.send, (busy || (!draft.trim() && !attached)) && s.sendOff]}
+            style={[
+              s.send,
+              (busy || (!draft.trim() && !attached)) && s.sendOff,
+            ]}
             onPress={send}
             disabled={busy || (!draft.trim() && !attached)}
           >
@@ -718,7 +851,8 @@ function Evidence({ ctx }: { ctx: ParsedContext }) {
   return (
     <View style={s.evidence}>
       <Text style={s.evidenceHead}>
-        {ctx.episodes.length} memories{replaced > 0 ? ` · ${replaced} replaced` : ""}
+        {ctx.episodes.length} memories
+        {replaced > 0 ? ` · ${replaced} replaced` : ""}
       </Text>
       {states.map((st, i) => (
         <Text key={i} style={[s.fact, st.superseded && s.factOld]}>
@@ -772,8 +906,18 @@ const s = StyleSheet.create({
   list: { padding: 16, paddingBottom: 10 },
 
   noteWrap: { alignItems: "center", marginVertical: 10, paddingHorizontal: 24 },
-  noteText: { color: t.color.inkTertiary, ...t.text.small, textAlign: "center", lineHeight: 18 },
-  noteLink: { color: t.color.accent, ...t.text.small, textAlign: "center", marginTop: 4 },
+  noteText: {
+    color: t.color.inkTertiary,
+    ...t.text.small,
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  noteLink: {
+    color: t.color.accent,
+    ...t.text.small,
+    textAlign: "center",
+    marginTop: 4,
+  },
 
   row: { marginVertical: 5, flexDirection: "row" },
   rowMine: { justifyContent: "flex-end" },
@@ -793,7 +937,12 @@ const s = StyleSheet.create({
   },
   bubbleText: { color: t.color.ink, ...t.text.body },
   caret: { color: t.color.accent },
-  image: { width: 210, height: 145, borderRadius: t.radius.sm, marginBottom: 8 },
+  image: {
+    width: 210,
+    height: 145,
+    borderRadius: t.radius.sm,
+    marginBottom: 8,
+  },
   meta: { color: t.color.inkTertiary, ...t.text.mono, marginTop: 7 },
   link: { color: t.color.accent, ...t.text.small, marginTop: 8 },
 
@@ -865,7 +1014,12 @@ const s = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 14,
   },
-  attachGlyphSm: { color: t.color.accent, fontSize: 15, width: 18, textAlign: "center" },
+  attachGlyphSm: {
+    color: t.color.accent,
+    fontSize: 15,
+    width: 18,
+    textAlign: "center",
+  },
   attachLabel: { color: t.color.ink, ...t.text.body, fontSize: 15 },
   attachDivider: {
     height: StyleSheet.hairlineWidth,
@@ -906,5 +1060,10 @@ const s = StyleSheet.create({
     backgroundColor: t.color.accent,
   },
   sendOff: { opacity: 0.35 },
-  sendGlyph: { color: t.color.accentInk, fontSize: 19, fontWeight: "700", marginTop: -2 },
+  sendGlyph: {
+    color: t.color.accentInk,
+    fontSize: 19,
+    fontWeight: "700",
+    marginTop: -2,
+  },
 });
