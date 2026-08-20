@@ -34,3 +34,7 @@ mobile/android/app/*.keystore
 
 # Play upload bundle — 51MB build artefact, rebuilt with `./gradlew bundleRelease`
 play/bundle/
+
+
+# Admin console credentials (Postgres URL + Neo4j Aura password)
+admin/.env

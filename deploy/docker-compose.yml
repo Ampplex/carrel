@@ -74,6 +74,30 @@ services:
       retries: 3
       start_period: 40s
 
+  # Read-only console over both stores. Published on loopback only and NOT
+  # proxied by nginx, so it has no public address — the SSH key is the
+  # authentication. See admin/README.md.
+  admin:
+    build:
+      context: ../admin
+    image: carrel-admin
+    container_name: carrel-admin
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - ../admin/.env
+    ports:
+      - "127.0.0.1:8020:8020"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    mem_limit: 256m
+    cpus: 0.5
+
 volumes:
   carrel-db-data:
 
