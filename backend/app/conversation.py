@@ -82,8 +82,16 @@ def _runtime():
 # asking later got "She's 26" instead of "I'm 26", and why a fresh session said
 # it had no name or age at all. Marking it at write time is what makes it
 # unambiguous when retrieved months later, beside everything else they said.
+# The trigger must START the message, not merely appear in it. Matching anywhere
+# turned "You are my ?" — a half-typed question — into a stored persona, and
+# would have done the same to "you are wrong" or "you are so slow". A persona is
+# injected into every prompt from then on and silently replaces whatever the
+# person actually chose, so a false positive here is worse than a missed one:
+# the cost of missing is retyping, the cost of catching wrongly is an assistant
+# that quietly becomes "so slow".
 _PERSONA = re.compile(
-    r"\b(you are|you're|youre|your name is|call yourself|act as|"
+    r"^\s*(?:hey |ok |okay |so )?"
+    r"(you are|you're|youre|your name is|call yourself|act as|"
     r"pretend to be|behave like|from now on you)\b",
     re.IGNORECASE,
 )
@@ -92,7 +100,35 @@ PERSONA_PREFIX = "Persona the user set for you (this describes YOU, the assistan
 
 
 def is_persona(message: str) -> bool:
-    return bool(_PERSONA.search(message))
+    """Is this the person telling the assistant who to be?
+
+    Three guards, each earned. The trigger has to open the message; a question
+    is never a persona however it is phrased; and there has to be something
+    after the trigger worth being — "you are" alone assigns nothing.
+    """
+    text = (message or "").strip()
+    if not text or text.endswith("?"):
+        return False
+    m = _PERSONA.match(text)
+    if not m:
+        return False
+    remainder = text[m.end():].strip(" ,.:;!-")
+    if len(remainder) < 3:
+        return False  # "you are my" assigns nothing
+
+    trigger = m.group(1).lower()
+    if trigger not in {"you are", "you're", "youre"}:
+        return True  # "your name is", "act as", "pretend to be" are unambiguous
+
+    # "you are X" is the ambiguous form: identical in shape to "you are wrong".
+    # What separates an assignment from a remark is that an assignment names
+    # something to BE — a proper name, or an article introducing a role.
+    named = any(w[:1].isupper() for w in remainder.split())
+    # Searched rather than anchored: "you are aleyna, a 20 year old girl" puts
+    # the article mid-sentence. "the" is excluded on purpose — "you are the
+    # best" is praise, not an assignment.
+    a_role = re.search(r"\ban?\s+\w+", remainder, re.IGNORECASE) is not None
+    return named or a_role
 
 
 def as_memory(message: str) -> str:

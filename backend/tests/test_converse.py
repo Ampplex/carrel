@@ -407,3 +407,43 @@ def test_a_persona_is_saved_to_the_account_immediately(stubbed):
     client.post("/api/converse", json={"message": "you are Mira"}, headers=headers)
 
     assert auth.resolve(session["token"])["persona"] == "you are Mira"
+
+
+# ── persona detection must not fire on ordinary remarks ───────────────────────
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "you are Mira, a librarian",
+        "you are a patient tutor",
+        "your name is Otto",
+        "from now on you are a study coach",
+        "act as a study coach",
+        "pretend to be my lab partner",
+    ],
+)
+def test_real_persona_assignments_are_caught(message):
+    assert conversation.is_persona(message) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "You are my ?",        # found in production: a half-typed question, stored as a persona
+        "you are wrong",
+        "you are so slow",
+        "you're annoying",
+        "you are the best",
+        "what are you doing?",
+        "I think you are great",
+        "the seminar moved to room 214",
+    ],
+)
+def test_remarks_and_questions_are_not_personas(message):
+    """A persona is injected into every prompt from then on and silently
+    replaces whatever the person actually chose, so a false positive is worse
+    than a miss: missing costs a retype, catching wrongly leaves an assistant
+    that has quietly become "so slow". "You are my ?" is not hypothetical — it
+    was sitting in a production account's persona column."""
+    assert conversation.is_persona(message) is False
